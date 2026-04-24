@@ -1,0 +1,201 @@
+58:const STORAGE_KEY = 'the-council-conversations';
+59:const SETTINGS_KEY = 'the-council-settings';
+62:  const [appMode, setAppMode] = useState<'COUNCIL' | 'LAB'>('COUNCIL');
+63:  const currentRoles = appMode === 'LAB' ? LAB_ROLES : ROLES;
+65:  const [conversations, setConversations] = useState<Conversation[]>([]);
+66:  const [currentId, setCurrentId] = useState<string | null>(null);
+68:  const [isProcessing, setIsProcessing] = useState(false);
+69:  const [isSuggesting, setIsSuggesting] = useState(false);
+70:  const [isRosterOpen, setIsRosterOpen] = useState(false);
+71:  const [settings, setSettings] = useState<UserSettings>(DEFAULT_SETTINGS);
+72:  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+73:  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+74:  const [isCustomAgentModalOpen, setIsCustomAgentModalOpen] = useState(false);
+75:  const [isTaskForceGridOpen, setIsTaskForceGridOpen] = useState(false);
+76:  const [editingAgentId, setEditingAgentId] = useState<string | null>(null);
+77:  const [showQuotaError, setShowQuotaError] = useState(false);
+78:  const [isNewsModeEnabled, setIsNewsModeEnabled] = useState(false);
+79:  const [sessionTokens, setSessionTokens] = useState({ agentInput: 0, agentOutput: 0, synthInput: 0, synthOutput: 0 });
+81:  const messagesEndRef = useRef<HTMLDivElement>(null);
+83:  const currentConv = conversations.find(c => c.id === currentId) || null;
+84:  const messages = currentConv?.messages || [];
+85:  const customAgents = currentConv?.customAgents || [];
+86:  const activeAgentIds = currentConv?.activeAgentIds || currentRoles.map(r => r.id);
+87:  const taskForcePurpose = currentConv?.taskForcePurpose;
+89:  const lastMsg = messages[messages.length - 1];
+90:  const showSynthesize = lastMsg && lastMsg.roleId !== 'user' && lastMsg.roleId !== 'synthesizer' && !isProcessing;
+92:  const getAgentGenerationConfig = (baseTemperature: number) => {
+101:    const savedMsgs = localStorage.getItem(STORAGE_KEY);
+106:        const parsed = JSON.parse(savedMsgs);
+110:            const migrated = parsed.map((m: any) => {
+123:            const newConv: Conversation = {
+153:    const savedSettings = localStorage.getItem(SETTINGS_KEY);
+185:      const targetMode = currentConv.mode || 'COUNCIL';
+192:  const updateConv = (id: string, updater: (c: Conversation) => Conversation) => {
+196:  const createNewConversation = () => {
+197:    const newConv: Conversation = { 
+213:  const toggleAgent = (agentId: string) => {
+216:      const newActive = c.activeAgentIds.includes(agentId)
+223:  const moveAgent = (agentId: string, direction: 'left' | 'right') => {
+226:    const defaultOrder = [
+232:    const missingAgents = defaultOrder.filter(id => !currentOrder.includes(id));
+235:    const index = currentOrder.indexOf(agentId);
+238:    const newIndex = direction === 'left' ? index - 1 : index + 1;
+241:    const newOrder = [...currentOrder];
+247:  const handleExport = () => {
+253:    const participants = [
+264:          const agent = getActiveAgent(m.roleId, currentConv.roleSettings || settings, currentConv.mode);
+266:            const ca = currentConv.customAgents.find(a => a.id === m.roleId);
+281:    const blob = new Blob([md], { type: 'text/markdown' });
+282:    const url = URL.createObjectURL(blob);
+283:    const a = document.createElement('a');
+292:  const handleSuggestExperts = async (topic: string) => {
+297:      const response = await withRetry(() => getAI().models.generateContent({
+317:      const suggestions = JSON.parse(response.text || '[]');
+320:        const newAgents = suggestions.map((s: any) => ({
+345:  const handleSend = async (text: string, attachments: Attachment[] = []) => {
+348:    const userMsg: Message = { id: uuidv4(), roleId: 'user', text, attachments };
+351:      const isFirst = c.messages.length === 0;
+366:    const latestConv = conversations.find(c => c.id === currentId) || currentConv;
+367:    const activeSettings = latestConv?.roleSettings || settings;
+376:        const ca = customAgents.find(a => a.id === m.roleId);
+385:    const defaultOrder = [
+390:    const missing = defaultOrder.filter(id => !order.includes(id));
+393:    const allAvailableAgents = [
+399:    const agentsToRun = allAvailableAgents
+402:        const orderA = order.indexOf(a.id);
+403:        const orderB = order.indexOf(b.id);
+408:    const agentMessages = agentsToRun.map(agent => ({
+422:      const agentMsgId = agentMessages[index].id;
+429:        const prompt = `Topic: ${effectiveUserPrompt}\n\nPrevious thoughts from the council:\n${currentContext}\n\nNow, provide your perspective based on your system instructions.`;
+431:        const parts: any[] = [];
+444:        const modelName = agent.model || 'gemini-3-flash-preview';
+445:        const payload = {
+468:        const responseStream = await withRetry(() => getAI().models.generateContentStream({
+477:        for await (const chunk of responseStream) {
+482:            const partialProvocation = extractPartialField(fullText, 'provocation');
+483:            const partialAnalysis = extractPartialField(fullText, 'full_analysis');
+484:            const hasJsonFields = !!partialProvocation || fullText.includes('"provocation"');
+510:        const { provocation, fullAnalysis } = parseAgentResponse(fullText);
+538:  const handleRetry = async (messageId: string) => {
+541:    const targetMsg = messages.find(m => m.id === messageId);
+558:        const lastUserIndex = [...messages].reverse().findIndex(m => m.roleId === 'user');
+560:        const relevantMessages = (lastUserIndex !== -1 ? messages.slice(messages.length - 1 - lastUserIndex) : messages)
+563:        const context = relevantMessages.map(m => {
+566:            const ca = customAgents.find(a => a.id === m.roleId);
+577:          const factCheckResponse = await withRetry(() => getAI().models.generateContent({
+626:        const activeSynth = getActiveAgent('synthesizer', currentConv?.roleSettings || settings);
+628:        const responseStream = await withRetry(() => getAI().models.generateContentStream({
+671:        for await (const chunk of responseStream) {
+683:        const synthesizerData = parseSynthesizerResponse(fullText);
+724:        const agent = getActiveAgent(targetMsg.roleId, currentConv?.roleSettings || settings);
+726:          const ca = customAgents.find(a => a.id === targetMsg.roleId);
+733:        const msgIndex = messages.findIndex(m => m.id === messageId);
+734:        const previousMessages = messages.slice(0, msgIndex);
+735:        const lastUserMsg = [...previousMessages].reverse().find(m => m.roleId === 'user');
+742:        const contextMessages = previousMessages.filter(m => m.id !== lastUserMsg.id); // Everything before the prompt
+743:        const currentContext = contextMessages.map(m => {
+746:            const ca = customAgents.find(a => a.id === m.roleId);
+752:        const prompt = `Topic: ${lastUserMsg.text}\n\nPrevious thoughts from the council:\n${currentContext}\n\nNow, provide your perspective on the topic, maintaining your persona and reacting to the previous thoughts if relevant.`;
+754:        const responseStream = await withRetry(() => getAI().models.generateContentStream({
+779:        for await (const chunk of responseStream) {
+784:            const partialProvocation = extractPartialField(fullText, 'provocation');
+785:            const partialAnalysis = extractPartialField(fullText, 'full_analysis');
+786:            const hasJsonFields = !!partialProvocation || fullText.includes('"provocation"');
+801:        const { provocation, fullAnalysis } = parseAgentResponse(fullText);
+826:  const handleRegenerateWithFactCheck = async (messageId: string) => {
+829:    const targetMsg = messages.find(m => m.id === messageId);
+835:    const factCheckFeedback = targetMsg.factCheck.text;
+846:      const lastUserIndex = [...messages].reverse().findIndex(m => m.roleId === 'user');
+847:      const relevantMessages = (lastUserIndex !== -1 ? messages.slice(messages.length - 1 - lastUserIndex) : messages)
+850:      const context = relevantMessages.map(m => {
+853:          const ca = customAgents.find(a => a.id === m.roleId);
+865:      const activeSynth = getActiveAgent('synthesizer', currentConv?.roleSettings || settings);
+867:      const responseStream = await withRetry(() => getAI().models.generateContentStream({
+923:      for await (const chunk of responseStream) {
+935:      const synthesizerData = parseSynthesizerResponse(fullText);
+946:        const factCheckResponse = await withRetry(() => getAI().models.generateContent({
+971:        const factCheckText = factCheckResponse.text?.trim() || '';
+1027:  const handleParameterChange = async (messageId: string, newValue: number) => {
+1030:    const targetMsg = messages.find(m => m.id === messageId);
+1034:    const roleId = targetMsg.roleId;
+1035:    const newSettings = {
+1047:    const originalResponse = targetMsg.text;
+1058:      const agent = getActiveAgent(roleId, newSettings);
+1062:        const role = ROLES.find(r => r.id === roleId);
+1066:      const prompt = `You are ${agent.name}.
+1075:      const responseStream = await withRetry(() => getAI().models.generateContentStream({
+1100:      for await (const chunk of responseStream) {
+1104:          const partialProvocation = extractPartialField(fullText, 'provocation');
+1105:          const partialAnalysis = extractPartialField(fullText, 'full_analysis');
+1106:          const hasJsonFields = !!partialProvocation || fullText.includes('"provocation"');
+1125:      const { provocation, fullAnalysis } = parseAgentResponse(fullText);
+1153:  const handleFactCheck = async (messageId: string, textToCheck: string, context: string[]) => {
+1164:      const factCheckResponse = await withRetry(() => getAI().models.generateContent({
+1192:      const factCheckText = factCheckResponse.text?.trim() || '';
+1234:  const handleDeepDive = async (messageId: string, keyword: string) => {
+1236:    const parentMsg = messages.find(m => m.id === messageId);
+1241:      const ca = customAgents.find(a => a.id === parentMsg.roleId);
+1245:    const deepDiveId = uuidv4();
+1261:      const prompt = `You previously said: "${parentMsg.text}"\n\nThe user wants you to elaborate specifically on the concept of: "${keyword}". Provide a focused, deeper analysis of this specific point, maintaining your persona. Keep it concise, around 100 words.`;
+1263:      const responseStream = await withRetry(() => getAI().models.generateContentStream({
+1288:      for await (const chunk of responseStream) {
+1293:          const partialProvocation = extractPartialField(fullText, 'provocation');
+1294:          const partialAnalysis = extractPartialField(fullText, 'full_analysis');
+1295:          const hasJsonFields = !!partialProvocation || fullText.includes('"provocation"');
+1318:      const { provocation, fullAnalysis } = parseAgentResponse(fullText);
+1357:  const handleSynthesize = async () => {
+1360:    const lastMsg = messages[messages.length - 1];
+1368:    const userMsg = messages[groupStart];
+1369:    const agentMsgs = messages.slice(groupStart + 1);
+1374:    const synthId = uuidv4();
+1382:      const synthAgent = getActiveAgent('synthesizer', activeSettings);
+1383:      const context = agentMsgs.map(m => {
+1384:        const agent = getActiveAgent(m.roleId, activeSettings);
+1387:          const ca = customAgents.find(a => a.id === m.roleId);
+1398:        const factCheckResponse = await withRetry(() => getAI().models.generateContent({
+1447:      const modelName = synthAgent.model || 'gemini-3.1-pro-preview';
+1448:      const payload = {
+1490:      const responseStream = await withRetry(() => getAI().models.generateContentStream({
+1499:      for await (const chunk of responseStream) {
+1522:      const synthesizerData = parseSynthesizerResponse(fullText);
+1551:  const handleDebate = async () => {
+1559:    const userMsg = messages[groupStart];
+1560:    const agentMsgs = messages.slice(groupStart + 1).filter(m => m.roleId !== 'synthesizer');
+1567:    const debateRoundIds: { [roleId: string]: string } = {};
+1568:    const newMessages: Message[] = [];
+1571:    const participatingAgents = activeAgentIds.filter(id => id !== 'user' && id !== 'synthesizer');
+1573:    const defaultOrder = [
+1578:    const missing = defaultOrder.filter(id => !order.includes(id));
+1581:    const sortedParticipatingAgents = [...participatingAgents].sort((a, b) => {
+1582:      const orderA = order.indexOf(a);
+1583:      const orderB = order.indexOf(b);
+1588:      const id = uuidv4();
+1599:    const councilContext = agentMsgs.map(m => {
+1600:      const agent = getActiveAgent(m.roleId, activeSettings);
+1607:        const agent = getActiveAgent(roleId, activeSettings);
+1608:        const prompt = `You are ${agent.name}. You and other members of The Council have just analyzed the following problem: "${userMsg.text}".
+1617:        const responseStream = await withRetry(() => getAI().models.generateContentStream({
+1642:        for await (const chunk of responseStream) {
+1647:            const partialProvocation = extractPartialField(fullText, 'provocation');
+1648:            const partialAnalysis = extractPartialField(fullText, 'full_analysis');
+1649:            const hasJsonFields = !!partialProvocation || fullText.includes('"provocation"');
+1664:        const { provocation, fullAnalysis } = parseAgentResponse(fullText);
+1690:  const handleModeChange = (mode: 'COUNCIL' | 'LAB') => {
+1698:        const newConv: Conversation = { 
+1714:  const handleClear = () => {
+1716:      const newConv = { id: uuidv4(), title: 'New Conversation', messages: [], createdAt: Date.now(), customAgents: [], activeAgentIds: currentRoles.map(r => r.id), roleSettings: settings, mode: appMode };
+1723:  const handleAddCustomAgent = (agent: CustomAgent) => {
+1733:  const handleDeleteCustomAgent = (agentId: string) => {
+1745:  const handleSelectTaskForce = (taskForce: TaskForce) => {
+1749:    const newAgents: CustomAgent[] = taskForce.agents.map(agent => ({
+1771:  const handleOpenKeyDialog = async () => {
+1779:  const groupedMessages: { userMsg: Message, agentMsgs: Message[], synthMsg: Message | null }[] = [];
+1782:  for (const msg of messages) {
+1794:  const activeSettings = currentConv?.roleSettings || settings;
+1796:  const defaultOrder = [
+1802:  const missingAgents = defaultOrder.filter(id => !currentOrder.includes(id));
+1805:  const allAvailableAgents = currentOrder
+1810:      const role = ROLES.find(r => r.id === id);
+1971:                          const isFirstDebateMsg = msg.isDebate && (index === 0 || !group.agentMsgs[index - 1]?.isDebate);
+2098:                const isActive = activeAgentIds.includes(agent.id);
