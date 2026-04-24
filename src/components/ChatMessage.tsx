@@ -576,7 +576,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ id, roleId, text, isTy
                   {/* Render Sources */}
                   {factCheck.sources && factCheck.sources.length > 0 && (
                     <div className="mt-3 pt-2 border-t border-[#F4F4F0]/10 flex flex-wrap gap-2">
-                      <span className="text-[10px] uppercase opacity-50 w-full mb-1">Verified Sources:</span>
+                      <span className="text-[10px] uppercase opacity-50 w-full mb-1">Grounded Ledger:</span>
                       {factCheck.sources.map((source, idx) => (
                         <a 
                           key={idx}

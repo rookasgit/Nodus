@@ -69,8 +69,8 @@ export const BranchModal: React.FC<BranchModalProps> = ({ isOpen, onClose, onBra
             </div>
             <div>
               <h3 className="font-mono font-bold text-[#F4F4F0] uppercase tracking-wider flex items-center gap-2">
-                Branch Timeline
-                <InfoTooltip text="Branching creates a parallel timeline. Your original chat is preserved, but this new timeline forces the Council to adapt to a sudden change in reality." />
+                Fork to Shadow Council
+                <InfoTooltip text="Branching creates a parallel timeline. Your original chat is preserved, but this new timeline forces the Shadow Council to adapt to a sudden Black Swan." />
               </h3>
               <p className="text-xs text-zinc-500 font-mono">Fork the conversation with a new variable.</p>
             </div>
@@ -106,7 +106,7 @@ export const BranchModal: React.FC<BranchModalProps> = ({ isOpen, onClose, onBra
               disabled={!scenario.trim()}
               className="px-6 py-2 bg-[#F4F4F0] text-black hover:bg-zinc-200 text-xs font-bold font-mono uppercase tracking-widest rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Create Branch
+              Inject Black Swan
             </button>
           </div>
         </div>

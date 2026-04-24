@@ -140,7 +140,7 @@ export function Synthesizer({ data, sessionTokens, isExtractMode, onExtractText 
           {data.grounding_sources && data.grounding_sources.length > 0 && (
             <div className="mt-8 pt-6 border-t border-[#F4F4F0]/10">
                <h4 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-4">
-                 Source Analysis (Grounding Artifacts)
+                 Grounded Ledger 
                </h4>
                <ul className="flex flex-col gap-2">
                  {data.grounding_sources.map((src, idx) => {

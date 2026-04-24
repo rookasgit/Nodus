@@ -92,7 +92,7 @@ TEMPLATE TO POPULATE:
 "A massive, high-order conclusion infographic poster designed with a strict Bauhaus and Brutalist aesthetic. Background: Charcoal Black (#09090b). Layout: Uncompromising geometric grid, sharp edges, solid blocks of neon cyan, industrial yellow, and stark white. No gradients. 
 
 Exact text rendering required (Sans-Serif, Bold):
-- Top Left: 'SYSTEM SYNTHESIS: [POSTER_TITLE]'
+- Top Left: 'SYNTHESIS TOPOLOGY: [POSTER_TITLE]'
 - Panel 1 (Top-Left): Headline '[HEADLINE_1]'. Diagram showing [DATA_1A] vs [DATA_1B].
 - Panel 2 (Top-Right): Headline '[HEADLINE_2]'. Radar chart comparing [POLYGON_A] vs [POLYGON_B].
 - Panel 3 (Middle): Headline '[HEADLINE_3]'. Feedback loop: [STEP_A] -> [STEP_B] -> [STEP_C].
@@ -355,10 +355,18 @@ export default function App() {
   };
 
   const generateArtifactMarkdown = (conversation: any) => {
-    let md = `# NODUS SYNTHESIS REPORT\n`;
-    md += `**Topic:** ${conversation.title || "System Inquiry"}\n`;
+    let md = `# NODUS SYNTHESIS TOPOLOGY\n`;
     md += `**Date:** ${new Date().toLocaleDateString()}\n`;
-    md += `**Active Task Force:** ${conversation.taskForceName || "Custom"}\n\n`;
+    
+    let taskForceStr = conversation.taskForceName || "Custom";
+    if (conversation.mode === 'LAB') {
+      taskForceStr = 'LAB MODE';
+      if (conversation.customAgents && conversation.customAgents.length > 0) {
+        taskForceStr += ` (${conversation.customAgents.map((a: any) => a.name).join(', ')})`;
+      }
+    }
+    
+    md += `**Active Task Force:** ${taskForceStr}\n\n`;
     md += `---\n\n`;
 
     conversation.messages.forEach((msg: any) => {
@@ -369,10 +377,14 @@ export default function App() {
       // 2. The Synthesizer's Output (JSON Extraction)
       else if (msg.roleId === 'synthesizer') {
         try {
-          const parsed = JSON.parse(msg.text);
-          md += `---\n\n## [ EXECUTIVE SYNTHESIS ]\n\n`;
-          if (parsed.whitepaper_markdown) {
-            md += `${parsed.whitepaper_markdown}\n\n`;
+          const parsed = (typeof msg.synthesizerData === 'object' && msg.synthesizerData !== null) 
+            ? msg.synthesizerData 
+            : (resilientJSONParse(msg.text) || JSON.parse(msg.text.replace(/```json/gi, '').replace(/```/g, '').trim()));
+          md += `---\n\n## [ SYNTHESIS TOPOLOGY ]\n\n`;
+          
+          const synthText = parsed.whitepaper_markdown || parsed.executive_summary || parsed.whitepaper;
+          if (synthText) {
+            md += `${synthText}\n\n`;
           }
           
           // Format the alignment quotes as a clean list
@@ -385,9 +397,17 @@ export default function App() {
              });
              md += `\n`;
           }
+          
+          if (parsed.grounding_sources && parsed.grounding_sources.length > 0) {
+             md += `### GROUNDED LEDGER\n`;
+             parsed.grounding_sources.forEach((src: any, idx: number) => {
+                 md += `${idx + 1}. [${src.title || 'Source'}](${src.url || '#'})\n`;
+             });
+             md += `\n`;
+          }
         } catch (e) {
           // Fallback if the AI fails to return valid JSON
-          md += `---\n\n## [ EXECUTIVE SYNTHESIS ]\n\n${msg.text}\n\n`;
+          md += `---\n\n## [ SYNTHESIS TOPOLOGY ]\n\n${msg.text}\n\n`;
         }
       } 
       // 3. The Individual Agents
@@ -401,11 +421,39 @@ export default function App() {
           if (agent) speaker = agent.name;
         }
         const name = speaker.toUpperCase();
-        md += `### ${name}\n${msg.text}\n\n`;
+        md += `### ${name}\n**Provocation:** ${msg.text}\n\n`;
+        
+        if (msg.fullAnalysis) {
+          md += `**Analysis:**\n${msg.fullAnalysis}\n\n`;
+        }
+        
+        if (msg.factCheck && msg.factCheck.status !== 'verifying') {
+          const statusMap = {
+            verified: 'VERIFIED',
+            warning: 'FACT-CHECK WARNING',
+            error: 'FACT-CHECK ERROR',
+            interpretation: 'INTERPRETATION CAUTION'
+          };
+          const statusLabel = statusMap[msg.factCheck.status] || 'NOTICE';
+          md += `> **[GROUNDED LEDGER: ${statusLabel}]**\n`;
+          if (msg.factCheck.text) {
+             md += `> ${msg.factCheck.text.split('\n').join('\n> ')}\n`;
+          }
+          if (msg.factCheck.sources && msg.factCheck.sources.length > 0) {
+             md += `>\n> **Sources:**\n`;
+             msg.factCheck.sources.forEach((src: any) => {
+                 md += `> - [${src.title || 'Source'}](${src.url || '#'})\n`;
+             });
+          }
+          md += `\n`;
+        }
         
         if (msg.deepDives && msg.deepDives.length > 0) {
           msg.deepDives.forEach((d: any) => {
             md += `> **Deep Dive (${d.keyword})**:\n> ${d.text.split('\n').join('\n> ')}\n\n`;
+            if (d.fullAnalysis) {
+              md += `> ${d.fullAnalysis.split('\n').join('\n> ')}\n\n`;
+            }
           });
         }
       }
@@ -939,7 +987,7 @@ Return ONLY a valid JSON object with the following structure:
           const activeAgentNames = allAvailableAgents.filter(a => activeAgentIds.includes(a.id)).map(a => a.name).join(', ');
           const factCheckResponse = await withRetry(() => getAI().models.generateContent({
             model: 'gemini-3-pro-preview',
-            contents: `You are a rigorous fact-checker for a debate between AI personas.
+            contents: `You are a Grounded Ledger Auditor for a debate between AI personas.
             The following analytical operatives generated this data: ${activeAgentNames}.
             
             Context (Previous Arguments):
@@ -1369,7 +1417,7 @@ Return ONLY a valid JSON object with the following structure:
       try {
         const factCheckResponse = await withRetry(() => getAI().models.generateContent({
           model: 'gemini-3-pro-preview',
-          contents: `You are a rigorous fact-checker for a debate between AI personas (e.g., Baudrillard, Zizek, etc.).
+          contents: `You are a Grounded Ledger Auditor for a debate between AI personas (e.g., Baudrillard, Zizek, etc.).
           Your goal is to distinguish between **Objective Factual Errors** and **Persona Interpretations**.
 
           Text to check:
@@ -1587,7 +1635,7 @@ Rewrite your response. You MUST maintain your exact core argument, analytical fr
     try {
       const factCheckResponse = await withRetry(() => getAI().models.generateContent({
         model: 'gemini-3-pro-preview',
-        contents: `You are a rigorous fact-checker for a debate between AI personas.
+        contents: `You are a Grounded Ledger Auditor for a debate between AI personas.
         Your goal is to distinguish between **Objective Factual Errors** and **Persona Interpretations**.
 
         Context (Previous Arguments):
@@ -1858,7 +1906,7 @@ Rewrite your response. You MUST maintain your exact core argument, analytical fr
         const activeAgentNames = allAvailableAgents.filter(a => activeAgentIds.includes(a.id)).map(a => a.name).join(', ');
         const factCheckResponse = await withRetry(() => getAI().models.generateContent({
           model: 'gemini-3-pro-preview',
-          contents: `You are a rigorous fact-checker for a debate between AI personas.
+          contents: `You are a Grounded Ledger Auditor for a debate between AI personas.
           The following analytical operatives generated this data: ${activeAgentNames}.
 
           Context (Previous Arguments):
@@ -2978,7 +3026,7 @@ Review the following document. Do not rewrite it entirely. Return a JSON array o
                           className="px-8 py-4 bg-zinc-900 border border-[#E03C31]/50 text-[#E03C31] font-mono font-bold uppercase tracking-widest hover:bg-[#E03C31]/20 transition-colors flex items-center gap-2"
                         >
                           <GitBranch size={18} />
-                          Branch Scenario
+                          Inject Black Swan
                         </button>
                         <button
                           onClick={handleDebate}
