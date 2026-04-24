@@ -1,6 +1,8 @@
-# Nodus Systems: The Cognitive Studio
+# Nodus Systems: A Co-Creation Studio for Rigorous Thinking
 
 Nodus is a Co-Creation Studio engineered to solve the 'Middle Manager Paradox' of generative AI. While traditional LLMs average out human thought into polite consensus, Nodus uses a multi-agent **'War Room'** architecture to induce **Epistemological Friction**. By combining a fuzzy-anchored living canvas with deterministic JSON **Synthesis Topology** and a **Grounded Ledger** for research auditing, Nodus transforms AI from a subservient intern into a rigorous intellectual sparring partner. It is a masterclass in high-craft React architecture, multi-agent orchestration, and agency-first HCI design.
+
+"What would you rather have? A tool that thinks for you, or a tool that makes you think?" — Advait Sarkar
 
 ## Core Pillars
 
