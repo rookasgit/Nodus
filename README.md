@@ -19,6 +19,23 @@ AI hallucinations destroy trust in enterprise environments. An intelligent syste
 ### 5. Insight Harvester & The Living Document
 The gap between reading an insight and acting on an insight should be zero milliseconds. Nodus uses Browser-level DOM Selection APIs to create an Insight Harvester, pulling selected sentences instantly into the Living Canvas. Using custom Whitespace-Agnostic Fuzzy Registration, the system ensures margin comments maintain semantic continuity even as the human performs heavy stylistic refactoring. 
 
+## What Nodus does
+
+- **Multi-agent War Room** — up to 6 locked cognitive personas (Machiavelli, Carl Sagan, Nietzsche, Nick Bostrom, Milton Friedman...) debate your prompt in parallel. Not sequentially. Simultaneously.
+- **Task Force selector** — curated panels for Career, Life, Product,   Curiosity, Creative. Or Auto-assemble a custom panel from a goal description.
+- **The Gavel** — click any agent's output to force a targeted rebuttal from another agent against that specific statement.
+- **Shadow Council & Black Swan** — inject a disruptive variable, fork the timeline, compare how the panel responds to a paradigm shift.
+- **Cognitive Assembly Engine** — strict JSON schema coercion maps the debate into heatmaps (agent alignment) and radar charts (cognitive axes). 
+  Topology of disagreement, not summary of consensus.
+- **Synthesis Lenses** — distill output through Conflict (show the cracks), Consensus (find the core), or Executive (bottom line) modes.
+- **News Mode** — live Google Search grounding with a source ledger. The system audits its own output against the web.
+- **Canvas** — a writing environment where the debate becomes a document. Fuzzy-anchored margin notes survive edits. One-click extraction from 
+  debate transcript to draft via browser Selection API. No autocomplete, no AI writing — only provocation.
+- **Executive Brief** — every session ends with a downloadable, formatted Markdown artifact.
+- **Cognitive Theater** — telemetry and interface theming that signals which mode of thinking is active.
+
+Known rough edges: mobile is currently broken, Auto-Task Force quality varies with prompt specificity, Lab↔Canvas visual consistency is uneven. Contributions welcome.
+
 ---
 
 ## Technical Overview
