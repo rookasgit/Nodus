@@ -1,0 +1,1061 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nodus | The Hegelian Co-Creation Studio</title>
+
+    <!-- Fonts: Cormorant (Display) & IBM Plex Sans (Body) -->
+    <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=Cormorant:ital,wght@0,400;0,600;1,400&family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+
+    <style>
+        /* ===========================================
+           BAUHAUS PALETTE & DESIGN TOKENS
+           =========================================== */
+        :root {
+            --bg-primary: #eeeadd;
+            --text-primary: #0f0f0f;
+            --text-secondary: #444;
+            --accent-warm: #f5d600;
+            --accent-gold: #d2484d;
+            --accent-pink: #006ab2;
+            --accent-mono: #666;
+
+            --font-display: 'Cormorant', serif;
+            --font-body: 'IBM Plex Sans', sans-serif;
+            --font-mono: 'IBM Plex Mono', monospace;
+
+            --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+            --duration-slow: 1.2s;
+            --duration-normal: 0.8s;
+
+            --h1-size: clamp(2.2rem, 6.5vw, 4.2rem);
+            --h2-size: clamp(1.4rem, 3.8vw, 2.4rem);
+            --h3-size: clamp(0.85rem, 1.8vw, 1.2rem);
+            --body-size: clamp(0.85rem, 1.1vw, 1.05rem);
+            --slide-padding: clamp(1.5rem, 8vw, 8rem);
+            --content-gap: clamp(1.2rem, 3.5vw, 3rem);
+        }
+
+        html,
+        body {
+            height: 100%;
+            overflow-x: hidden;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            font-family: var(--font-body);
+            line-height: 1.5;
+        }
+
+        html {
+            scroll-snap-type: y mandatory;
+            scroll-behavior: smooth;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        .slide {
+            width: 100vw;
+            height: 100vh;
+            height: 100dvh;
+            overflow: hidden;
+            scroll-snap-align: start;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+        }
+
+        .slide-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            max-height: 100%;
+            overflow: hidden;
+            padding: var(--slide-padding);
+            z-index: 2;
+        }
+
+        .abstract-shape {
+            position: absolute;
+            border-radius: 50%;
+            filter: blur(100px);
+            opacity: 0.15;
+            z-index: 1;
+            pointer-events: none;
+        }
+
+        .shape-gold {
+            width: 45vw;
+            height: 45vw;
+            background: var(--accent-gold);
+            top: -10%;
+            right: -5%;
+        }
+
+        .shape-pink {
+            width: 35vw;
+            height: 35vw;
+            background: var(--accent-pink);
+            bottom: -5%;
+            left: -5%;
+        }
+
+        .accent-line {
+            width: 1px;
+            height: 60px;
+            background: var(--accent-gold);
+            margin: 0 auto var(--content-gap);
+        }
+
+        .title-slide .accent-line {
+            margin: 0 0 var(--content-gap);
+        }
+
+        h1,
+        h2 {
+            font-family: var(--font-display);
+            font-weight: 600;
+            line-height: 1.1;
+            margin-bottom: 0.5rem;
+        }
+
+        h1 {
+            font-size: var(--h1-size);
+            color: var(--text-primary);
+        }
+
+        h2 {
+            color: var(--accent-gold);
+        }
+
+        h3 {
+            font-family: var(--font-body);
+            text-transform: uppercase;
+            letter-spacing: 0.2em;
+            font-size: 0.7rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.8rem;
+            font-weight: 700;
+        }
+
+        .intro-text {
+            font-family: var(--font-display);
+            font-style: italic;
+            font-size: clamp(1rem, 2vw, 1.5rem);
+            margin-top: 1rem;
+            color: var(--text-secondary);
+            max-width: 800px;
+        }
+
+        .slide-footer {
+            position: absolute;
+            bottom: 2rem;
+            left: var(--slide-padding);
+            font-family: var(--font-display);
+            font-style: italic;
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            opacity: 0.5;
+            z-index: 3;
+        }
+
+        .slide-num {
+            position: absolute;
+            top: 2rem;
+            right: var(--slide-padding);
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            color: var(--accent-mono);
+            z-index: 3;
+            letter-spacing: 0.1em;
+        }
+
+        /* ANIMATIONS */
+        .reveal {
+            opacity: 0;
+            transform: translateY(20px);
+            transition: all var(--duration-normal) var(--ease-out-expo);
+        }
+
+        .reveal-scale {
+            opacity: 0;
+            transform: scale(0.97);
+            transition: all var(--duration-slow) var(--ease-out-expo);
+        }
+
+        .reveal-blur {
+            opacity: 0;
+            filter: blur(12px);
+            transition: all var(--duration-slow) var(--ease-out-expo);
+        }
+
+        .slide.visible .reveal {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .slide.visible .reveal-scale {
+            opacity: 1;
+            transform: scale(1);
+        }
+
+        .slide.visible .reveal-blur {
+            opacity: 1;
+            filter: blur(0);
+        }
+
+        .reveal:nth-child(1) {
+            transition-delay: 0.1s;
+        }
+
+        .reveal:nth-child(2) {
+            transition-delay: 0.2s;
+        }
+
+        .reveal:nth-child(3) {
+            transition-delay: 0.3s;
+        }
+
+        .reveal:nth-child(4) {
+            transition-delay: 0.4s;
+        }
+
+        /* COMPONENTS */
+        .bullet-list {
+            list-style: none;
+            display: flex;
+            flex-direction: column;
+            gap: 0.6rem;
+            margin-top: 1rem;
+        }
+
+        .bullet-list li {
+            font-size: var(--body-size);
+            padding-left: 1.8rem;
+            position: relative;
+            line-height: 1.4;
+            color: var(--text-secondary);
+        }
+
+        .bullet-list li::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0.6em;
+            width: 0.7rem;
+            height: 1px;
+            background: var(--accent-gold);
+        }
+
+        .bullet-list li strong {
+            color: var(--text-primary);
+            font-weight: 600;
+        }
+
+        .quote-box {
+            border-left: 1px solid var(--accent-gold);
+            padding-left: 1.5rem;
+            margin: 1.5rem 0;
+            font-family: var(--font-display);
+            font-size: clamp(1rem, 1.8vw, 1.4rem);
+            font-style: italic;
+            line-height: 1.3;
+            color: var(--text-secondary);
+        }
+
+        .code-block {
+            background: #000;
+            padding: 1.25rem;
+            border-radius: 4px;
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            color: #ccc;
+            margin-top: 1rem;
+            line-height: 1.5;
+            border-left: 3px solid var(--accent-pink);
+        }
+
+        .grid-2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: var(--content-gap);
+            align-items: start;
+        }
+
+        @media (max-width: 900px) {
+            .grid-2 {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .progress-bar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            height: 3px;
+            background: var(--accent-gold);
+            width: 0%;
+            z-index: 100;
+            transition: width 0.3s ease;
+        }
+
+        .nav-dots {
+            position: fixed;
+            right: 1.5rem;
+            top: 50%;
+            transform: translateY(-50%);
+            display: flex;
+            flex-direction: column;
+            gap: 0.6rem;
+            z-index: 100;
+        }
+
+        .nav-dot {
+            width: 4px;
+            height: 4px;
+            border: 1px solid var(--accent-mono);
+            border-radius: 50%;
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+
+        .nav-dot.active {
+            background: var(--accent-gold);
+            border-color: var(--accent-gold);
+            transform: scale(2);
+        }
+
+        /* Hegelian Visual */
+        .hegelian-map {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 2rem;
+            position: relative;
+        }
+
+        .nexus-point {
+            width: 40px;
+            height: 40px;
+            border: 1px solid #000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            border-radius: 50%;
+            background: white;
+            z-index: 5;
+        }
+
+        .hegelian-branch {
+            flex: 1;
+            border-top: 1px dashed var(--accent-mono);
+            height: 1px;
+        }
+
+        /* Cards */
+        .card-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1rem;
+            margin-top: 1.5rem;
+        }
+
+        .card {
+            padding: 1.5rem;
+            border: 1px solid rgba(0, 0, 0, 0.1);
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        .card h4 {
+            font-family: var(--font-display);
+            font-size: 1.2rem;
+            margin-bottom: 0.5rem;
+            border-bottom: 1px solid var(--accent-gold);
+            padding-bottom: 0.5rem;
+        }
+
+        .card p {
+            font-size: 0.8rem;
+            opacity: 0.7;
+            line-height: 1.3;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="progress-bar"></div>
+    <nav class="nav-dots"></nav>
+
+    <!-- Slide 1: Title -->
+    <section class="slide title-slide" id="slide-1">
+        <div class="abstract-shape shape-gold"></div>
+        <div class="abstract-shape shape-pink"></div>
+        <div class="slide-content">
+            <div class="accent-line reveal"></div>
+            <h3 class="reveal">Co-Creation Studio</h3>
+            <h1 class="reveal-blur">Nodus: Your sparring<br>partner for thought.</h1>
+            <p class="intro-text reveal">Move past 'helpful chatbots'. Nodus is built to challenge you—a workspace
+                designed to test your ideas against hostile personas.</p>
+        </div>
+        <div class="slide-num">01/21</div>
+    </section>
+
+    <!-- Slide 2: The Problem -->
+    <section class="slide" id="slide-2">
+        <div class="slide-content">
+            <h3 class="reveal">The Philosophy</h3>
+            <h2 class="reveal">The Trap of Polite Consensus.</h2>
+            <div class="quote-box reveal">
+                "Safe consensus is a trap. Most AI tells you what you want to hear. Nodus forces the friction you need
+                to find the truth."
+            </div>
+            <ul class="bullet-list">
+                <li class="reveal"><strong>Break the echo chamber:</strong> Nodus uses opposing personas to create
+                    productive resistance.</li>
+                <li class="reveal"><strong>Don't outsource your thinking:</strong> The system shouldn't write for you.
+                    It
+                    should provoke you into writing better.</li>
+            </ul>
+        </div>
+        <div class="slide-num">02/21</div>
+    </section>
+
+    <!-- Slide 3: Hegelian Methodology -->
+    <section class="slide" id="slide-3">
+        <div class="slide-content">
+            <h3 class="reveal">02. The Methodology</h3>
+            <h2 class="reveal">Thesis + Antithesis = Synthesis.</h2>
+            <p class="reveal">Your idea has to survive the stress test. We pit opposing viewpoints against your
+                argument. What’s left is your synthesis: the parts that actually held up.</p>
+            <div style="display: flex; gap: 1rem; margin-top: 2rem; align-items: stretch; text-align: center;"
+                class="reveal">
+                <!-- Column 1 -->
+                <div
+                    style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;">
+                    <div
+                        style="font-family: var(--font-mono); font-size: 0.7rem; color: var(--accent-gold); margin-bottom: 0.5rem; letter-spacing: 0.1em;">
+                        THESIS</div>
+                    <div
+                        style="font-family: var(--font-display); font-size: 1.8rem; font-weight: 600; margin-bottom: 0.5rem;">
+                        Council</div>
+                    <p style="font-size: 0.8rem; opacity: 0.7; margin-bottom: 0.8rem;">Your argument as you believe it
+                    </p>
+                    <div
+                        style="font-family: var(--font-display); font-style: italic; font-size: 1.1rem; color: var(--text-secondary);">
+                        "Here's my take on X"</div>
+                </div>
+                <div
+                    style="display: flex; align-items: center; justify-content: center; color: var(--accent-mono); opacity: 0.5;">
+                    &rarr;</div>
+                <!-- Column 2 -->
+                <div
+                    style="flex: 1.2; display: flex; flex-direction: column; align-items: center; justify-content: center; border: 1px solid var(--accent-red); padding: 1.5rem; background: rgba(0,0,0,0.02); border-color: var(--accent-gold);">
+                    <div
+                        style="font-family: var(--font-mono); font-size: 0.7rem; color: var(--accent-gold); margin-bottom: 0.5rem; letter-spacing: 0.1em;">
+                        ANTITHESIS</div>
+                    <div
+                        style="font-family: var(--font-display); font-size: 1.8rem; font-weight: 600; margin-bottom: 0.5rem; color: var(--accent-gold);">
+                        Lab</div>
+                    <p style="font-size: 0.8rem; opacity: 0.7; margin-bottom: 0.8rem;">Six hostile experts tear it apart
+                    </p>
+                    <div
+                        style="font-family: var(--font-display); font-style: italic; font-size: 1.1rem; color: var(--text-secondary);">
+                        "Here's why you're wrong"</div>
+                </div>
+                <div
+                    style="display: flex; align-items: center; justify-content: center; color: var(--accent-mono); opacity: 0.5;">
+                    &rarr;</div>
+                <!-- Column 3 -->
+                <div
+                    style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;">
+                    <div
+                        style="font-family: var(--font-mono); font-size: 0.7rem; color: var(--accent-pink); margin-bottom: 0.5rem; letter-spacing: 0.1em;">
+                        SYNTHESIS</div>
+                    <div
+                        style="font-family: var(--font-display); font-size: 1.8rem; font-weight: 600; margin-bottom: 0.5rem;">
+                        Canvas</div>
+                    <p style="font-size: 0.8rem; opacity: 0.7; margin-bottom: 0.8rem;">Only what survived the pressure
+                    </p>
+                    <div
+                        style="font-family: var(--font-display); font-style: italic; font-size: 1.1rem; color: var(--text-secondary);">
+                        "Here's what held up under fire"</div>
+                </div>
+            </div>
+        </div>
+        <div class="slide-num">03/21</div>
+    </section>
+
+    <!-- Slide 4: Operational Modes -->
+    <section class="slide" id="slide-4">
+        <div class="slide-content">
+            <h3 class="reveal">System 01</h3>
+            <h2 class="reveal">The Three Modes.</h2>
+            <div class="card-grid reveal">
+                <div class="card">
+                    <h4>Council</h4>
+                    <p><strong>Brainstorming.</strong> The Thesis phase. Get your ideas out quickly and set the
+                        direction.</p>
+                </div>
+                <div class="card" style="border-color: var(--accent-gold);">
+                    <h4>Lab</h4>
+                    <p><strong>The stress test.</strong> The Antithesis phase. Unfiltered testing of every claim you
+                        make.</p>
+                </div>
+                <div class="card">
+                    <h4>Canvas</h4>
+                    <p><strong>Synthesis.</strong> Where you turn the debate into a finished, battle-tested document.
+                    </p>
+                </div>
+            </div>
+        </div>
+        <div class="slide-num">04/21</div>
+    </section>
+
+    <!-- Slide 5: Lifecycle -->
+    <section class="slide" id="slide-5">
+        <div class="slide-content">
+            <h3 class="reveal">The Lifecycle</h3>
+            <h2 class="reveal">Explore → Challenge → Build.</h2>
+            <div style="display: flex; gap: 2rem; margin-top: 2rem;" class="reveal">
+                <div style="flex:1; border-top: 1px solid var(--accent-gold); padding-top: 1rem;">
+                    <h4 style="font-family: var(--font-display); font-size: 1.3rem;">Explore</h4>
+                    <p style="font-size: 0.8rem; opacity: 0.7; line-height: 1.4;">Upload your source documents and a
+                        question. Personas
+                        like Machiavelli or Carl Sagan read and question the material differently before the debate
+                        starts. Read
+                        alongside them. The goal isn't an AI summary—it's to see the text through adversarial lenses
+                        before you
+                        form your own position.
+                    </p>
+                </div>
+                <div style="flex:1; border-top: 1px solid var(--accent-gold); padding-top: 1rem;">
+                    <h4 style="font-family: var(--font-display); font-size: 1.3rem;">Challenge</h4>
+                    <p style="font-size: 0.8rem; opacity: 0.7;">Running the debate and pushing your logic to the
+                        breaking point.</p>
+                </div>
+                <div style="flex:1; border-top: 1px solid var(--accent-gold); padding-top: 1rem;">
+                    <h4 style="font-family: var(--font-display); font-size: 1.3rem;">Build</h4>
+                    <p style="font-size: 0.8rem; opacity: 0.7;">Refining what survives on the living canvas.</p>
+                </div>
+            </div>
+        </div>
+        <div class="slide-num">05/21</div>
+    </section>
+
+    <!-- Slide 6: Persona Mapping -->
+    <section class="slide" id="slide-6">
+        <div class="slide-content">
+            <h3 class="reveal">System 02</h3>
+            <h2 class="reveal">Persona Mapping.</h2>
+            <p class="reveal">We don't just change the tone—we change the underlying logic.</p>
+            <ul class="bullet-list">
+                <li class="reveal"><strong>Machiavellian Realism:</strong> Prioritizes power and outcomes over
+                    sentiment.</li>
+                <li class="reveal"><strong>Existential Theory:</strong> Questions the basic premise and purpose of the
+                    action.</li>
+                <li class="reveal"><strong>Forensic Audit:</strong> Tears down logical fallacies and attacks data
+                    integrity.</li>
+            </ul>
+        </div>
+        <div class="slide-num">06/21</div>
+    </section>
+
+    <!-- Slide 7: War Room -->
+    <section class="slide" id="slide-7">
+        <div class="slide-content">
+            <h3 class="reveal">System 03</h3>
+            <h2 class="reveal">Multi-Agent War Room.</h2>
+            <div class="grid-2">
+                <div class="reveal">
+                    <p>Run multiple agents in parallel. Orchestrate debate at scale.</p>
+                    <ul class="bullet-list">
+                        <li><strong>The Gavel:</strong> Click any output to force a rebuttal. The responding agent
+                            receives that exact statement as adversarial context and has to try and break it.</li>
+                        <li><strong>Context Forest:</strong> Real-time context sharing between agents as the debate
+                            evolves.</li>
+                    </ul>
+                </div>
+                <div class="reveal">
+                    <div class="code-block" style="border-left-color: var(--accent-gold);">
+                        <span style="color: #6a9;">// Targeted Gavel Rebuttal</span><br>
+                        agent.respondTo(parent.statement).force(adversarial);
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="slide-num">07/21</div>
+    </section>
+
+    <!-- Slide 8: Shadow Council -->
+    <section class="slide" id="slide-8">
+        <div class="slide-content">
+            <h3 class="reveal">System 04</h3>
+            <h2 class="reveal">Shadow Council & Black Swan.</h2>
+            <div class="grid-2">
+                <div class="reveal">
+                    <p><strong>Inject the unthinkable.</strong> The Shadow Council introduces disruptive variables
+                        to test your resilience.</p>
+                    <ul class="bullet-list">
+                        <li><strong>The Black Swan Injector:</strong> A 'Hidden Agent' that injects chaos to see if your
+                            strategy holds.</li>
+                        <li><strong>Timeline Branching:</strong> Fork the debate to compare parallel outcomes
+                            side-by-side.</li>
+                    </ul>
+                </div>
+                <div class="reveal"
+                    style="background: black; padding: 1.5rem; color: var(--accent-gold); font-family: var(--font-mono); font-size: 0.7rem;">
+                    [ ! ] BLACK SWAN DETECTED<br>
+                    [ ! ] FORKING TIMELINE...<br>
+                    [ ! ] INJECTING MARKET COLLAPSE VARIABLE
+                </div>
+            </div>
+        </div>
+        <div class="slide-num">08/21</div>
+    </section>
+
+    <!-- Slide 9: Assembly -->
+    <section class="slide" id="slide-9">
+        <div class="slide-content">
+            <h3 class="reveal">System 05</h3>
+            <h2 class="reveal">Assembly Engine.</h2>
+            <p class="reveal">Synthesis through structured JSON. Mapping the exact points where arguments fail.</p>
+            <div class="code-block reveal">
+                responseSchema: {<br>
+                &nbsp;&nbsp;points_of_divergence: array,<br>
+                &nbsp;&nbsp;friction_topology: vector_map<br>
+                }
+            </div>
+        </div>
+        <div class="slide-num">09/21</div>
+    </section>
+
+    <!-- Slide 10: Topology -->
+    <section class="slide" id="slide-10">
+        <div class="slide-content">
+            <h3 class="reveal">Insights</h3>
+            <h2 class="reveal">Mapping Disagreement.</h2>
+            <div class="grid-2">
+                <div class="reveal"
+                    style="display: flex; flex-direction: column; align-items: center; justify-content: center;">
+                    <!-- Simple SVG Schematic of Topology Map -->
+                    <svg width="100%" height="220" viewBox="0 0 300 200" xmlns="http://www.w3.org/2000/svg">
+                        <defs>
+                            <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
+                                <stop offset="0%" style="stop-color:var(--accent-gold);stop-opacity:0.2" />
+                                <stop offset="100%" style="stop-color:var(--accent-pink);stop-opacity:0.6" />
+                            </linearGradient>
+                        </defs>
+                        <!-- Radar base -->
+                        <polygon points="150,20 250,80 210,180 90,180 50,80" fill="none" stroke="var(--accent-mono)"
+                            stroke-width="1" opacity="0.3" stroke-dasharray="2,2" />
+                        <polygon points="150,50 210,95 185,155 115,155 90,95" fill="none" stroke="var(--accent-mono)"
+                            stroke-width="1" opacity="0.5" stroke-dasharray="2,2" />
+                        <!-- Target Map -->
+                        <polygon points="150,30 220,100 160,160 120,130 80,70" fill="url(#grad1)"
+                            stroke="var(--accent-gold)" stroke-width="1.5" />
+                        <!-- Nodes -->
+                        <circle cx="150" cy="30" r="4" fill="var(--accent-gold)" />
+                        <circle cx="220" cy="100" r="4" fill="var(--accent-gold)" />
+                        <circle cx="160" cy="160" r="4" fill="var(--accent-pink)" />
+                        <circle cx="120" cy="130" r="4" fill="var(--accent-pink)" />
+                        <!-- Center Lines -->
+                        <line x1="150" y1="20" x2="150" y2="105" stroke="var(--accent-mono)" stroke-width="1"
+                            opacity="0.3" />
+                        <line x1="50" y1="80" x2="150" y2="105" stroke="var(--accent-mono)" stroke-width="1"
+                            opacity="0.3" />
+                        <line x1="250" y1="80" x2="150" y2="105" stroke="var(--accent-mono)" stroke-width="1"
+                            opacity="0.3" />
+                    </svg>
+                </div>
+                <div class="reveal">
+                    <p>Turn vague friction into concrete insights. Don't just summarize the debate—map the
+                        structure of the argument.</p>
+                </div>
+            </div>
+        </div>
+        <div class="slide-num">10/21</div>
+    </section>
+
+    <!-- Slide 11: Synthesis Lenses -->
+    <section class="slide" id="slide-11">
+        <div class="slide-content">
+            <h3 class="reveal">03. The Output</h3>
+            <h2 class="reveal">Focusing the Output.</h2>
+            <p class="reveal">Distill the debate through three primary lenses.</p>
+            <div class="card-grid reveal">
+                <div class="card">
+                    <h4>Conflict (Amplify)</h4>
+                    <p><strong>"Show me the cracks."</strong> Red-team the consensus to find what breaks.</p>
+                </div>
+                <div class="card">
+                    <h4>Consensus (Force)</h4>
+                    <p><strong>"What is the core?"</strong> Finding common ground in complex, divergent debates.</p>
+                </div>
+                <div class="card" style="border-color: var(--accent-pink);">
+                    <h4>Executive (Brief)</h4>
+                    <p><strong>"Bottom Line."</strong> Optimized for fast action and clear decisions.</p>
+                </div>
+            </div>
+        </div>
+        <div class="slide-num">11/21</div>
+    </section>
+
+    <!-- Slide 12: Living Canvas -->
+    <section class="slide" id="slide-12">
+        <div class="slide-content">
+            <h3 class="reveal">System 06</h3>
+            <h2 class="reveal">The Living Document (Synthesis).</h2>
+            <p class="reveal">A collaborative workspace where you take the raw output of the debate and build a
+                resilient document.</p>
+            <ul class="bullet-list">
+                <li class="reveal"><strong>Human Authority:</strong> The AI provokes. You write, edit, and synthesize.
+                </li>
+                <li class="reveal"><strong>Margin Crucible:</strong> A canvas that pushes back while you write.</li>
+            </ul>
+        </div>
+        <div class="slide-num">12/21</div>
+    </section>
+
+    <!-- Slide 13: Fuzzy Anchoring -->
+    <section class="slide" id="slide-13">
+        <div class="slide-content">
+            <h3 class="reveal">Legacy Fix</h3>
+            <h2 class="reveal">Fuzzy Anchoring.</h2>
+            <p class="reveal">Our search algorithm ignores whitespace and punctuation shifts to ensure margin notes
+                survive your stylistic refactoring.</p>
+            <p class="reveal"
+                style="font-size: 0.85rem; margin-top: 1rem; border-left: 2px solid var(--accent-pink); padding-left: 1rem; color: var(--text-secondary); line-height: 1.4;">
+                Margin notes carry state: active, dismissed, integrated. This forces a decision — not just
+                reading the critique, but taking a position on it. That makes your thinking process visible and
+                actionable.</p>
+            <div class="code-block reveal">
+                raw(quote) === raw(doc.substring(i, i+len))
+            </div>
+        </div>
+        <div class="slide-num">13/21</div>
+    </section>
+
+    <!-- Slide 14: Insight Harvester -->
+    <section class="slide" id="slide-14">
+        <div class="slide-content">
+            <h3 class="reveal">UX Craft</h3>
+            <h2 class="reveal">Insight Harvester (Anywhere Draft).</h2>
+            <p class="reveal">Selection-bound capture. Save ideas with zero friction.</p>
+            <ul class="bullet-list">
+                <li class="reveal"><strong>DOM Selection:</strong> Tracks `window.getSelection()` for instant capture.
+                </li>
+                <li class="reveal"><strong>Direct Transpose:</strong> Highlights are sent straight to your active draft.
+                </li>
+            </ul>
+        </div>
+        <div class="slide-num">14/21</div>
+    </section>
+
+    <!-- Slide 15: Grounded Researcher -->
+    <section class="slide" id="slide-15">
+        <div class="slide-content">
+            <h3 class="reveal">System 07</h3>
+            <h2 class="reveal">News Mode & News Ledger.</h2>
+            <div class="grid-2">
+                <div class="reveal">
+                    <p>Real-time fact-checking grounds the simulation. Assume models will hallucinate.</p>
+                    <ul class="bullet-list">
+                        <li><strong>Live Audit:</strong> Background tool calling (Google Search) to verify facts.</li>
+                        <li><strong>Clickable Ledger:</strong> Citations are interactive and domain-verified.</li>
+                    </ul>
+                </div>
+                <div class="reveal" style="border: 1px solid #000; padding: 1.5rem; background: white;">
+                    <div style="font-family: var(--font-mono); font-size: 0.7rem;">● NEWS_MODE: ACTIVE</div>
+                    <p style="font-size: 0.8rem; margin-top: 1rem; color: var(--accent-pink);">[ SOURCE VERIFIED ]
+                        https://domain.edu</p>
+                </div>
+            </div>
+        </div>
+        <div class="slide-num">15/21</div>
+    </section>
+
+    <!-- Slide 16: Auto-Task Force -->
+    <section class="slide" id="slide-16">
+        <div class="slide-content">
+            <h3 class="reveal">Meta-Prompting</h3>
+            <h2 class="reveal">Dynamic Agent Hydration.</h2>
+            <p class="reveal">Prompt-to-prompt architecture. Generate specialized agents just by describing your goal.
+            </p>
+            <div class="grid-2" style="margin-top: 1.5rem;">
+                <div class="reveal">
+                    <ul class="bullet-list" style="margin-top: 0;">
+                        <li><strong>Describe a goal</strong> in plain language.</li>
+                        <li>A Director prompt <strong>creates three specialized agents</strong> on
+                            the fly, writing their personas and instructions dynamically.</li>
+                        <li><strong>Quality depends on specificity:</strong> concrete goals yield sharper agents.</li>
+                    </ul>
+                </div>
+                <div class="reveal">
+                    <div class="code-block" style="margin-top: 0;">
+                        <span style="opacity: 0.6; color: var(--accent-mono);">// Director Prompt → Agent
+                            Factory</span><br>
+                        <span class="code-keyword">goal:</span> <span class="code-string">"stress-test my go-to-market
+                            strategy"</span><br>
+                        &rarr; <span class="code-keyword">generates:</span> { name, persona, systemInstruction } × 3<br>
+                        &rarr; <span class="code-keyword">hydrates:</span> CustomAgent[] into React state
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="slide-num">16/21</div>
+    </section>
+
+    <!-- Slide 17: Telemetry -->
+    <section class="slide" id="slide-17">
+        <div class="slide-content">
+            <h3 class="reveal">Atmosphere</h3>
+            <h2 class="reveal">Contextual UI.</h2>
+            <div style="background: black; padding: 2rem; color: #0f0; font-family: var(--font-mono); font-size: 0.7rem;"
+                class="reveal-scale">
+                [ ANALYZING EPISTEMOLOGICAL DRIFT ]<br>
+                [ CALCULATING DISSENT TOPOLOGY... 89% ]<br>
+                [ SHADOW_COUNCIL: INJECTING BLACK_SWAN ]
+            </div>
+            <p class="reveal"
+                style="margin-top: 1.5rem; font-size: 0.85rem; font-style: italic; color: var(--text-secondary);">The
+                interface changes state. Lab mode is clinical. Council is warm. The visual environment
+                signals how you should be thinking.</p>
+        </div>
+        <div class="slide-num">17/21</div>
+    </section>
+
+    <!-- Slide 18: Post-Chat Vision -->
+    <section class="slide" id="slide-18">
+        <div class="slide-content">
+            <h3 class="reveal">The Vision</h3>
+            <h2 class="reveal">Moving Past Chat.</h2>
+            <div class="quote-box reveal">
+                "Single-prompt chat interfaces are a bottleneck. Nodus shifts toward spatial, multi-agent co-creation."
+            </div>
+        </div>
+        <div class="slide-num">18/21</div>
+    </section>
+
+    <!-- Slide 19: Architecture -->
+    <section class="slide" id="slide-19">
+        <div class="slide-content">
+            <h3 class="reveal">Tech Stack</h3>
+            <h2 class="reveal">Tech Stack.</h2>
+            <div class="grid-2 reveal">
+                <div>
+                    <ul class="bullet-list">
+                        <li><strong>React 18 / Vite / TypeScript</strong></li>
+                        <li><strong>Tailwind CSS / Framer Motion</strong></li>
+                        <li><strong>echarts-for-react</strong></li>
+                    </ul>
+                </div>
+                <div>
+                    <ul class="bullet-list">
+                        <li><strong>@google/genai</strong> (Gemini 2.5, 3/3.1 Pro/Flash)</li>
+                        <li><strong>fuzzysort</strong> (fuzzy anchoring)</li>
+                        <li><strong>localStorage</strong> (no backend)</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+        <div class="slide-footer reveal">Note: Bauhaus palette chosen for semantic contrast and reduced cognitive load.
+        </div>
+        <div class="slide-num">19/21</div>
+    </section>
+
+    <!-- Slide 20: System Index -->
+    <section class="slide" id="slide-20">
+        <div class="slide-content">
+            <h3 class="reveal">Summary</h3>
+            <h2 class="reveal">Feature Index.</h2>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1.5rem;" class="reveal">
+                <div style="padding: 1rem; border: 1px solid rgba(0,0,0,0.1); background: rgba(255,255,255,0.4);">
+                    <div
+                        style="font-family: var(--font-display); font-size: 1.1rem; font-weight: 600; margin-bottom: 0.25rem;">
+                        Council</div>
+                    <div style="font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-secondary);">
+                        Collaborative thesis generation</div>
+                </div>
+                <div style="padding: 1rem; border: 1px solid rgba(0,0,0,0.1); background: rgba(255,255,255,0.4);">
+                    <div
+                        style="font-family: var(--font-display); font-size: 1.1rem; font-weight: 600; margin-bottom: 0.25rem;">
+                        Lab</div>
+                    <div style="font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-secondary);">
+                        Adversarial stress-testing</div>
+                </div>
+                <div style="padding: 1rem; border: 1px solid rgba(0,0,0,0.1); background: rgba(255,255,255,0.4);">
+                    <div
+                        style="font-family: var(--font-display); font-size: 1.1rem; font-weight: 600; margin-bottom: 0.25rem;">
+                        Canvas</div>
+                    <div style="font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-secondary);">
+                        Human-authored synthesis</div>
+                </div>
+                <div style="padding: 1rem; border: 1px solid rgba(0,0,0,0.1); background: rgba(255,255,255,0.4);">
+                    <div
+                        style="font-family: var(--font-display); font-size: 1.1rem; font-weight: 600; margin-bottom: 0.25rem;">
+                        Shadow Council</div>
+                    <div style="font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-secondary);">
+                        Resilience testing engine</div>
+                </div>
+                <div style="padding: 1rem; border: 1px solid rgba(0,0,0,0.1); background: rgba(255,255,255,0.4);">
+                    <div
+                        style="font-family: var(--font-display); font-size: 1.1rem; font-weight: 600; margin-bottom: 0.25rem;">
+                        Assembly Engine</div>
+                    <div style="font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-secondary);">JSON
+                        structured output + disagreement mapping</div>
+                </div>
+                <div style="padding: 1rem; border: 1px solid rgba(0,0,0,0.1); background: rgba(255,255,255,0.4);">
+                    <div
+                        style="font-family: var(--font-display); font-size: 1.1rem; font-weight: 600; margin-bottom: 0.25rem;">
+                        Fuzzy Anchoring</div>
+                    <div style="font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-secondary);">
+                        Edit-proof margin notes</div>
+                </div>
+                <div style="padding: 1rem; border: 1px solid rgba(0,0,0,0.1); background: rgba(255,255,255,0.4);">
+                    <div
+                        style="font-family: var(--font-display); font-size: 1.1rem; font-weight: 600; margin-bottom: 0.25rem;">
+                        Insight Harvester</div>
+                    <div style="font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-secondary);">
+                        Zero-friction extraction</div>
+                </div>
+                <div style="padding: 1rem; border: 1px solid rgba(0,0,0,0.1); background: rgba(255,255,255,0.4);">
+                    <div
+                        style="font-family: var(--font-display); font-size: 1.1rem; font-weight: 600; margin-bottom: 0.25rem;">
+                        News Mode</div>
+                    <div style="font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-secondary);">Live
+                        grounding + source ledger</div>
+                </div>
+                <div
+                    style="grid-column: 1 / -1; padding: 1.25rem; border: 1px solid var(--accent-pink); background: rgba(255,255,255,0.7);">
+                    <div
+                        style="font-family: var(--font-display); font-size: 1.2rem; font-weight: 600; margin-bottom: 0.25rem;">
+                        Executive Brief</div>
+                    <div style="font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-secondary);">The
+                        final artifact. Not an AI summary, but a document you built through friction, ready to ship.
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="slide-num">20/21</div>
+    </section>
+
+    <!-- Slide 21: Conclusion -->
+    <section class="slide title-slide" id="slide-21">
+        <div class="abstract-shape shape-gold"></div>
+        <div class="abstract-shape shape-pink"></div>
+        <div class="slide-content">
+            <div class="accent-line reveal"></div>
+            <h3 class="reveal">Conclusion</h3>
+            <h2 class="reveal-blur">Built for<br>Human Authority.</h2>
+            <div style="margin-top: 3rem;" class="reveal">
+                <p
+                    style="font-family: var(--font-mono); font-size: 0.8rem; color: var(--accent-gold); font-weight: 700;">
+                    github.com/nodus-studio/nodus</p>
+                <div
+                    style="font-family: var(--font-mono); font-size: 0.65rem; opacity: 0.5; margin-top: 1.5rem; line-height: 1.6;">
+                    [ v2.0 — DESIGN NOTES ]<br>
+                    Desktop-first by design — synthesis needs screen real estate. Mobile on roadmap.<br>
+                    Auto-Task Force rewards specific goals. Vague in, vague out.<br>
+                    News Mode confidence scoring is approximate — treat as signal, not verdict.<br>
+                    Lab &harr; Canvas visual consistency is intentional in concept, still calibrating in execution.<br>
+                    &rarr; Try it. Tell me what you find.
+                </div>
+            </div>
+        </div>
+        <div class="slide-num">21/21</div>
+    </section>
+
+    <script>
+        class SlidePresentation {
+            constructor() {
+                this.slides = document.querySelectorAll('.slide');
+                this.progressBar = document.querySelector('.progress-bar');
+                this.navDotsContainer = document.querySelector('.nav-dots');
+
+                this.setupIntersectionObserver();
+                this.setupNavDots();
+                this.setupKeyboardNav();
+                this.setupProgress();
+            }
+
+            setupIntersectionObserver() {
+                const options = { threshold: 0.5 };
+                const observer = new IntersectionObserver((entries) => {
+                    entries.forEach(entry => {
+                        if (entry.isIntersecting) {
+                            entry.target.classList.add('visible');
+                            this.updateActiveDot(entry.target.id);
+                        }
+                    });
+                }, options);
+
+                this.slides.forEach(slide => observer.observe(slide));
+            }
+
+            setupNavDots() {
+                this.slides.forEach((slide, index) => {
+                    const dot = document.createElement('div');
+                    dot.classList.add('nav-dot');
+                    dot.dataset.target = slide.id;
+                    dot.title = `Slide ${index + 1}`;
+                    dot.addEventListener('click', () => {
+                        slide.scrollIntoView({ behavior: 'smooth' });
+                    });
+                    this.navDotsContainer.appendChild(dot);
+                });
+            }
+
+            updateActiveDot(id) {
+                document.querySelectorAll('.nav-dot').forEach(dot => {
+                    dot.classList.toggle('active', dot.dataset.target === id);
+                });
+            }
+
+            setupKeyboardNav() {
+                window.addEventListener('keydown', (e) => {
+                    if (e.key === 'ArrowDown' || e.key === ' ' || e.key === 'PageDown') {
+                        e.preventDefault();
+                        this.navigate(1);
+                    } else if (e.key === 'ArrowUp' || e.key === 'PageUp') {
+                        e.preventDefault();
+                        this.navigate(-1);
+                    }
+                });
+            }
+
+            navigate(direction) {
+                const current = [...this.slides].findIndex(s => {
+                    const rect = s.getBoundingClientRect();
+                    return rect.top >= -50 && rect.top <= 50;
+                });
+                const target = Math.min(Math.max(current + direction, 0), this.slides.length - 1);
+                this.slides[target].scrollIntoView({ behavior: 'smooth' });
+            }
+
+            setupProgress() {
+                window.addEventListener('scroll', () => {
+                    const totalHeight = document.documentElement.scrollHeight - window.innerHeight;
+                    const progress = (window.pageYOffset / totalHeight) * 100;
+                    this.progressBar.style.width = `${progress}%`;
+                });
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            new SlidePresentation();
+        });
+    </script>
+</body>
+
+</html>
