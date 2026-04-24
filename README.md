@@ -4,6 +4,8 @@ Nodus is a Co-Creation Studio engineered to solve the 'Middle Manager Paradox' o
 
 "What would you rather have? A tool that thinks for you, or a tool that makes you think?" — Advait Sarkar
 
+You can test it directly here with your Google account: https://ai.studio/apps/a93f47da-3e1c-4f6f-90fe-947817306510
+
 ## Core Pillars
 
 ### 1. The Dynamic War Room (Epistemological Friction)
