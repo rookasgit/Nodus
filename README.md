@@ -37,6 +37,10 @@ The gap between reading an insight and acting on an insight should be zero milli
   debate transcript to draft via browser Selection API. No autocomplete, no AI writing — only provocation.
 - **Executive Brief** — every session ends with a downloadable, formatted Markdown artifact.
 - **Cognitive Theater** — telemetry and interface theming that signals which mode of thinking is active.
+- **Debate Protocols** — Configure the friction before you start. Choose between Open, Oxford Style, or Socratic formats, and set the pushback level from Collaborative to Devil’s Advocate.
+- **Strategic Vectors** — The Synthesizer doesn't just summarize; it generates actionable "Next Questions" based on unresolved friction. One-click these "Action Pills" to loop the debate back into the War Room.
+- **Session Resolution & Retrospective** — Formalize your thinking. Evaluate sessions based on blind spots uncovered and risk acceptance. Resolved sessions are indexed in your history with satisfaction scores and green-check status.
+- **Intelligence Exports** — Generate HTML Reports, or extract your work as a focused markdown brief.
 
 Known rough edges: mobile is currently broken, Auto-Task Force quality varies with prompt specificity, Lab↔Canvas visual consistency is uneven. Contributions welcome.
 
