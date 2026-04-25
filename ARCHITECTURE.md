@@ -6,7 +6,7 @@ Nodus is built as an experimental, client-side heavy React Co-Creation Studio, p
 * **Framework:** React 18 / Vite / TypeScript
 * **Styling:** Tailwind CSS + Framer Motion (for viewport transitions/animations).
 * **Charts/Viz:** `echarts-for-react` mapping structured LLM output to visualization components.
-* **LLM Engine:** `@google/genai` (utilizing Gemini 3.0 Pro, Gemini 3.0 Flash, and Gemini 2.5 Flash for image generation).
+* **LLM Engine:** `@google/genai` (utilizing Gemini 3.1/3.0 Pro/Flash, and Gemini 2.5 Flash for image generation).
 * **Fuzzy Matching:** `fuzzysort` for resilient document anchoring.
 
 ---
