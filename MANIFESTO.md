@@ -82,4 +82,14 @@ Nodus is built to be the second thing.
 
 ---
 
+## VIII. The Resolution Loop
+
+Friction for the sake of friction is just noise. The goal of Nodus is to reach a point of Calculated Clarity.
+
+The "Session Resolution" feature exists because a thought process is only as good as the decision it produces. By forcing a retrospective—asking if blind spots were uncovered or if the remaining risks are acceptable—the interface transitions from a "War Room" into a "Decision Record."
+
+We don't want you to chat forever. We want you to stress-test, resolve, and export. The "Strategic Vectors" (suggested questions) ensure that the machine's role is to point at the cracks you haven't filled yet, keeping the loop active only as long as there is unresolved friction.
+
+---
+
 *Inspired by Advait Sarkar's work on AI and critical thinking, Andrej Karpathy's llm-council, and Andras Baneth's practical work on AI personas as decision instruments.*
