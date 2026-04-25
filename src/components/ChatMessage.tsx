@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { getActiveAgent, UserSettings, CustomAgent, ROLES, LAB_ROLES } from '../agents';
 import { parseAgentResponse } from '../lib/streamExtractor';
 import Markdown from 'react-markdown';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { Search, Paperclip, CheckCircle, AlertTriangle, Loader2, RefreshCw, Link as LinkIcon, Globe, Gavel, Layout, Plus } from 'lucide-react';
 
 import { Synthesizer } from './Synthesizer';
@@ -124,6 +124,7 @@ interface ChatMessageProps {
   isExtractMode?: boolean;
   onExtractText?: (text: string) => void;
   onExtractToBuffer?: (messageId: string) => void;
+  onActionClick?: (question: string) => void;
 }
 
 const ParameterSlider: React.FC<{ 
@@ -187,7 +188,7 @@ const extractLinks = (text: string) => {
   return links;
 };
 
-export const ChatMessage: React.FC<ChatMessageProps> = ({ id, roleId, text, isTyping, settings, deepDives = [], onDeepDive, customAgents = [], attachments = [], factCheck, onRetry, onRegenerateWithFactCheck, onParameterChange, synthesizerData, fullAnalysis, tokenCount, sessionTokens, onRebuttal, availableAgents, allAgentsList, rebuttals, pendingInfographicPrompt, isGeneratingImage, onGenerateInfographic, imageUrl, onAppendToCanvas, isExtractMode, onExtractText, onExtractToBuffer }) => {
+export const ChatMessage: React.FC<ChatMessageProps> = ({ id, roleId, text, isTyping, settings, deepDives = [], onDeepDive, customAgents = [], attachments = [], factCheck, onRetry, onRegenerateWithFactCheck, onParameterChange, synthesizerData, fullAnalysis, tokenCount, sessionTokens, onRebuttal, availableAgents, allAgentsList, rebuttals, pendingInfographicPrompt, isGeneratingImage, onGenerateInfographic, imageUrl, onAppendToCanvas, isExtractMode, onExtractText, onExtractToBuffer, onActionClick }) => {
   let agent = getActiveAgent(roleId, settings);
   let parameterConfig: { name: string, min: number, max: number, default: number } | null = null;
 
@@ -300,6 +301,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ id, roleId, text, isTy
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
       className={`flex flex-col h-full ${roleId === 'user' || roleId === 'synthesizer' ? 'col-span-full mb-8' : 'border border-zinc-800 p-4 bg-zinc-950/30 group relative'} ${isFlashing ? 'ring-2 ring-[#005A9C] bg-[#005A9C]/10 transition-all duration-300' : 'transition-all duration-500'}`}
+      data-message-block
     >
       <div className={`flex items-center gap-2 mb-3 ${roleId === 'user' ? 'justify-end' : 'justify-start'}`}>
         {roleId !== 'user' && (
@@ -393,7 +395,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ id, roleId, text, isTy
                [ SYNTHESIZING ALIGNMENT DATA... ]
              </div>
           ) : synthesizerData ? (
-            <Synthesizer data={synthesizerData} sessionTokens={sessionTokens} isExtractMode={isExtractMode} onExtractText={onExtractText} />
+            <Synthesizer data={synthesizerData} sessionTokens={sessionTokens} isExtractMode={isExtractMode} onExtractText={onExtractText} onActionClick={onActionClick} />
           ) : (
             <>
               {isRawJson ? (
@@ -420,7 +422,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ id, roleId, text, isTy
 
               {isTyping && (
                 <div className="mt-4 text-[10px] font-mono text-zinc-500 italic animate-pulse">
-                   [ {thinkingTraces[thinkingIndex].toUpperCase()} ]
+                   [ {(thinkingTraces[thinkingIndex] || '').toUpperCase()} ]
                 </div>
               )}
             </>

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+console.log('App.tsx module loading...');
 import { v4 as uuidv4 } from 'uuid';
 import { ROLES, LAB_ROLES, SYNTHESIZER, getActiveAgent, UserSettings, DEFAULT_SETTINGS, CustomAgent } from './agents';
 import { TASK_FORCES, TaskForce } from './taskForces';
@@ -16,8 +17,10 @@ import { GoogleGenAI, Type } from '@google/genai';
 import { getAI, withRetry, calculateQueryCost, fetchLiveContext } from './lib/gemini';
 import { extractPartialField, parseAgentResponse, parseSynthesizerResponse } from './lib/streamExtractor';
 import { resilientJSONParse } from './utils/jsonParser';
-import { motion, AnimatePresence } from 'motion/react';
-import { Trash2, Download, Settings, Menu, Plus, UserPlus, Users, X, Settings2, RefreshCw, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Grid, AlertTriangle, Globe, GitBranch } from 'lucide-react';
+import { SessionManager, SessionRetrospective } from './lib/sessionManager';
+import { RetrospectiveModal } from './components/RetrospectiveModal';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Trash2, Download, Settings, Menu, Plus, UserPlus, Users, X, Settings2, RefreshCw, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Grid, AlertTriangle, Globe, GitBranch, Star, Check } from 'lucide-react';
 import { NodusLogo } from './components/NodusLogo';
 
 declare global {
@@ -74,10 +77,32 @@ interface Conversation {
   canvasText?: string;
   marginNotes?: MarginNote[];
   artifactBuffer?: string[];
+  debateFormat?: 'OPEN' | 'OXFORD' | 'SOCRATIC';
+  pushbackLevel?: 'COLLABORATIVE' | 'BALANCED' | 'DEVILS_ADVOCATE';
+  retrospective?: SessionRetrospective;
 }
 
 const STORAGE_KEY = 'the-council-conversations';
 const SETTINGS_KEY = 'the-council-settings';
+
+const DEBATE_FORMAT_RULES: Record<string, string> = {
+  'OPEN': 'Open Debate: Each agent provides their perspective independently.',
+  'OXFORD': 'Oxford-Style: Agents must structure their response analytically, consisting of a clear Opening thesis, a preemptive Rebuttal of opposition, and a strong Closing statement.',
+  'SOCRATIC': 'Socratic Questioning: Agents must act as Socratic questioners. Instead of providing declarative answers, they must ask a series of probing, foundational questions targeting the assumptions in the input.'
+};
+
+const DEBATE_PUSHBACK_RULES: Record<string, string> = {
+  'COLLABORATIVE': 'Pushback Level: Collaborative Synthesis. Agents should seek common ground, emphasize constructive building, and minimize toxic adversariality.',
+  'BALANCED': 'Pushback Level: Balanced. Agents should maintain their persona, disagreeing where natural but remaining objective.',
+  'DEVILS_ADVOCATE': 'Pushback Level: Devil\'s Advocate (Highly Adversarial). Agents must relentlessly attack the weakest points of the premise, showing no mercy and strictly avoiding premature consensus.'
+};
+
+const getDebateRulesStr = (conv: Conversation | null, mode: string | undefined): string => {
+  if (mode !== 'COUNCIL') return '';
+  return `DEBATE CONFIGURATION:
+${DEBATE_FORMAT_RULES[conv?.debateFormat || 'OPEN']}
+${DEBATE_PUSHBACK_RULES[conv?.pushbackLevel || 'BALANCED']}\n\n`;
+};
 
 const INFOGRAPHIC_ARCHITECT_PROMPT = `
 You are an expert AI Prompt Architect specializing in Brutalist and Bauhaus data visualization.
@@ -116,7 +141,9 @@ export default function App() {
   const [isRosterOpen, setIsRosterOpen] = useState(false);
   const [settings, setSettings] = useState<UserSettings>(DEFAULT_SETTINGS);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(window.innerWidth >= 1024);
+  const [canvasWidth, setCanvasWidth] = useState(33);
+  const [isDraggingCanvas, setIsDraggingCanvas] = useState(false);
   const [isCustomAgentModalOpen, setIsCustomAgentModalOpen] = useState(false);
   const [isTaskForceGridOpen, setIsTaskForceGridOpen] = useState(false);
   const [isBranchModalOpen, setIsBranchModalOpen] = useState(false);
@@ -141,6 +168,58 @@ export default function App() {
   const [lastExtractedBlockId, setLastExtractedBlockId] = useState<string | null>(null);
   const [marginNotes, setMarginNotes] = useState<MarginNote[]>([]);
   const [isReviewingCanvas, setIsReviewingCanvas] = useState(false);
+  const [isRetrospectiveModalOpen, setIsRetrospectiveModalOpen] = useState(false);
+  
+  useEffect(() => {
+    const runDiagnostics = () => {
+      console.group('--- ENVIRONMENT DIAGNOSTICS ---');
+      console.log('In iframe:', window.self !== window.top);
+      console.log('Print API available:', typeof window.print === 'function');
+      
+      try {
+        const testBlob = new Blob(['test'], { type: 'text/plain' });
+        const testUrl = URL.createObjectURL(testBlob);
+        console.log('Object URL created successfully:', testUrl);
+        URL.revokeObjectURL(testUrl);
+      } catch (e) {
+        console.error('Object URL creation blocked:', e);
+      }
+
+      console.log('window.open available:', typeof window.open === 'function');
+      console.log('User Agent:', navigator.userAgent);
+      console.groupEnd();
+    };
+    runDiagnostics();
+  }, []);
+
+  useEffect(() => {
+    if (!isDraggingCanvas) return;
+    
+    const handleMouseMove = (e: MouseEvent) => {
+       const newWidth = ((window.innerWidth - e.clientX) / window.innerWidth) * 100;
+       setCanvasWidth(Math.min(Math.max(newWidth, 20), 80));
+    };
+    
+    const handleMouseUp = () => {
+       setIsDraggingCanvas(false);
+    };
+    
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    
+    return () => {
+       window.removeEventListener('mousemove', handleMouseMove);
+       window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDraggingCanvas]);
+
+  // Optional: Auto-expand canvas if we get margin notes and canvas is still narrow
+  useEffect(() => {
+     if (marginNotes.length > 0 && canvasWidth < 40) {
+        setCanvasWidth(50);
+     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [marginNotes.length]);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -162,75 +241,51 @@ export default function App() {
 
   // Load from local storage on mount
   useEffect(() => {
-    const savedMsgs = localStorage.getItem(STORAGE_KEY);
-    let initialConvs: Conversation[] = [];
-    
-    if (savedMsgs) {
-      try {
-        const parsed = JSON.parse(savedMsgs);
-        if (Array.isArray(parsed)) {
-          if (parsed.length > 0 && !parsed[0].messages) {
-            // Legacy flat messages array
-            const migrated = parsed.map((m: any) => {
-              if (m.agentId && !m.roleId) {
-                let roleId = m.agentId;
-                if (m.agentId === 'adam') roleId = 'societal';
-                if (m.agentId === 'mark') roleId = 'cultural';
-                if (m.agentId === 'brian') roleId = 'creative';
-                if (m.agentId === 'jeff') roleId = 'futurist';
-                if (m.agentId === 'demis') roleId = 'tech';
-                if (m.agentId === 'researcher') roleId = 'researcher';
-                return { ...m, roleId };
-              }
-              return m;
-            });
-            const newConv: Conversation = {
-              id: uuidv4(),
-              title: migrated.find((m: any) => m.roleId === 'user')?.text?.substring(0, 30) || 'Legacy Conversation',
-              messages: migrated,
-              createdAt: Date.now(),
-              customAgents: [],
-              activeAgentIds: currentRoles.map(r => r.id),
-              mode: 'COUNCIL'
-            };
-            initialConvs = [newConv];
-          } else {
-            // Already new format
-            initialConvs = parsed.map((c: any) => {
-              const migratedRoleSettings = { ...c.roleSettings };
-              if (migratedRoleSettings) {
-                Object.keys(migratedRoleSettings).forEach(key => {
-                  if (migratedRoleSettings[key].model === 'gemini-2.5-flash') {
-                    migratedRoleSettings[key].model = 'gemini-3-flash-preview';
-                  }
-                });
-              }
-              const migratedCustomAgents = (c.customAgents || []).map((ca: any) => {
-                if (ca.model === 'gemini-2.5-flash') {
-                  return { ...ca, model: 'gemini-3-flash-preview' };
-                }
-                return ca;
-              });
-              return {
-                ...c,
-                roleSettings: migratedRoleSettings,
-                customAgents: migratedCustomAgents,
-                activeAgentIds: c.activeAgentIds || (c.mode === 'LAB' ? LAB_ROLES : ROLES).map(r => r.id)
-              };
-            });
-          }
-        }
-      } catch (e) {
-        console.error('Failed to parse saved conversations', e);
+    const initializeSessions = async () => {
+      // 1. One-time migration if needed
+      await SessionManager.migrateFromLocalStorage();
+      
+      // 2. Load all sessions
+      const allSessions = await SessionManager.getAllSessions();
+      let initialConvs: Conversation[] = [];
+      
+      if (allSessions.length > 0) {
+        // Hydrate Conversations from WarRoomState payloads
+        initialConvs = allSessions.map(session => {
+           let c = { ...session.payload, retrospective: session.retrospective };
+           
+           // Apply same migrations as before for flash previews
+           const migratedRoleSettings = { ...c.roleSettings };
+           if (migratedRoleSettings) {
+             Object.keys(migratedRoleSettings).forEach(key => {
+               if (migratedRoleSettings[key].model === 'gemini-2.5-flash') {
+                 migratedRoleSettings[key].model = 'gemini-3-flash-preview';
+               }
+             });
+           }
+           const migratedCustomAgents = (c.customAgents || []).map((ca: any) => {
+             if (ca.model === 'gemini-2.5-flash') {
+               return { ...ca, model: 'gemini-3-flash-preview' };
+             }
+             return ca;
+           });
+           return {
+             ...c,
+             roleSettings: migratedRoleSettings,
+             customAgents: migratedCustomAgents,
+             activeAgentIds: c.activeAgentIds || (c.mode === 'LAB' ? LAB_ROLES : ROLES).map(r => r.id)
+           };
+        });
+      } else {
+        // Fallback or empty state
+        initialConvs = [{ id: uuidv4(), title: 'New Conversation', messages: [], createdAt: Date.now(), customAgents: [], activeAgentIds: currentRoles.map(r => r.id), roleSettings: DEFAULT_SETTINGS, mode: appMode }];
       }
-    }
 
-    if (initialConvs.length === 0) {
-      initialConvs = [{ id: uuidv4(), title: 'New Conversation', messages: [], createdAt: Date.now(), customAgents: [], activeAgentIds: currentRoles.map(r => r.id), roleSettings: DEFAULT_SETTINGS, mode: appMode }];
-    }
-    
-    setConversations(initialConvs);
-    setCurrentId(initialConvs[0].id);
+      setConversations(initialConvs);
+      setCurrentId(initialConvs[0].id);
+    };
+
+    initializeSessions();
 
     const savedSettings = localStorage.getItem(SETTINGS_KEY);
     if (savedSettings) {
@@ -267,12 +322,23 @@ export default function App() {
     ));
   }, [canvasText, marginNotes, artifactBuffer]);
 
-  // Save conversations to local storage
+  // Save conversations to IDB
   useEffect(() => {
-    if (conversations.length > 0) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(conversations));
+    if (currentConv) {
+      const session = {
+        sessionId: currentConv.id,
+        title: currentConv.title,
+        lastModified: Date.now(),
+        payload: { ...currentConv, retrospective: undefined }, // Don't double-save retrospective in payload if we want it top-level
+        retrospective: currentConv.retrospective
+      };
+      SessionManager.saveSession(session).catch(e => console.error("Failed to save to IDB:", e));
+      
+      // Keep conversations sorted in UI if we want to reflect "last modified" on top
+      // Note: Re-sorting `conversations` constantly while typing would cause UI jumping.
+      // Doing it only on load is often sufficient, but we can leave it as is for UI stability.
     }
-  }, [conversations]);
+  }, [currentConv]);
 
   // Save settings to local storage
   useEffect(() => {
@@ -313,11 +379,43 @@ export default function App() {
       activeAgentIds: currentRoles.map(r => r.id), 
       roleSettings: settings,
       agentOrder: currentRoles.map(r => r.id),
-      mode: appMode
+      mode: appMode,
+      debateFormat: 'OPEN',
+      pushbackLevel: 'BALANCED'
     };
     setConversations(prev => [newConv, ...prev]);
     setCurrentId(newConv.id);
     setIsSidebarOpen(false);
+  };
+
+  const handleDeleteConversation = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    await SessionManager.deleteSession(id);
+    setConversations(prev => {
+      const filtered = prev.filter(c => c.id !== id);
+      if (filtered.length === 0) {
+        // Prevent empty state by starting fresh
+        const newConv: Conversation = { 
+          id: uuidv4(), 
+          title: 'New Conversation', 
+          messages: [], 
+          createdAt: Date.now(), 
+          customAgents: [], 
+          activeAgentIds: currentRoles.map(r => r.id), 
+          roleSettings: settings,
+          agentOrder: currentRoles.map(r => r.id),
+          mode: appMode,
+          debateFormat: 'OPEN',
+          pushbackLevel: 'BALANCED'
+        };
+        setCurrentId(newConv.id);
+        return [newConv];
+      }
+      if (currentId === id) {
+        setCurrentId(filtered[0].id);
+      }
+      return filtered;
+    });
   };
 
   const toggleAgent = (agentId: string) => {
@@ -354,183 +452,453 @@ export default function App() {
     updateConv(currentId, c => ({ ...c, agentOrder: newOrder }));
   };
 
-  const generateArtifactMarkdown = (conversation: any) => {
-    let md = `# NODUS SYNTHESIS TOPOLOGY\n`;
-    md += `**Date:** ${new Date().toLocaleDateString()}\n`;
+  const generateArtifactMarkdown = (conversation: any, mode: 'full' | 'canvas' = 'full') => {
+    let md = '';
     
-    let taskForceStr = conversation.taskForceName || "Custom";
-    if (conversation.mode === 'LAB') {
-      taskForceStr = 'LAB MODE';
-      if (conversation.customAgents && conversation.customAgents.length > 0) {
-        taskForceStr += ` (${conversation.customAgents.map((a: any) => a.name).join(', ')})`;
-      }
-    }
-    
-    md += `**Active Task Force:** ${taskForceStr}\n\n`;
-    md += `---\n\n`;
+    if (mode === 'full') {
+        md += `# ${conversation.title || 'Nodus Strategic Artifact'}\n\n`;
+        md += `**Archive ID:** \`${Math.random().toString(36).substr(2, 9).toUpperCase()}\`\n`;
+        md += `**Release Date:** ${new Date().toLocaleDateString()}\n\n`;
+        
+        let taskForceStr = conversation.taskForceName || "Custom";
+        if (conversation.mode === 'LAB') taskForceStr = 'Advanced Laboratory';
+        md += `**Configuration:** ${taskForceStr}\n\n`;
+        md += `---\n\n`;
 
-    conversation.messages.forEach((msg: any) => {
-      // 1. The User's Prompt
-      if (msg.roleId === 'user') {
-        md += `### [ THE INQUIRY ]\n${msg.text}\n\n`;
-      } 
-      // 2. The Synthesizer's Output (JSON Extraction)
-      else if (msg.roleId === 'synthesizer') {
-        try {
-          const parsed = (typeof msg.synthesizerData === 'object' && msg.synthesizerData !== null) 
-            ? msg.synthesizerData 
-            : (resilientJSONParse(msg.text) || JSON.parse(msg.text.replace(/```json/gi, '').replace(/```/g, '').trim()));
-          md += `---\n\n## [ SYNTHESIS TOPOLOGY ]\n\n`;
-          
-          const synthText = parsed.whitepaper_markdown || parsed.executive_summary || parsed.whitepaper;
-          if (synthText) {
-            md += `${synthText}\n\n`;
-          }
-          
-          // Format the alignment quotes as a clean list
-          if (parsed.alignment_quotes && parsed.alignment_quotes.length > 0) {
-             md += `### CRITICAL VECTORS\n`;
-             parsed.alignment_quotes.forEach((q: any) => {
-               const type = q.type ? q.type.toUpperCase() : "NOTE";
-               const agents = q.agents ? q.agents.join(' + ') : "Agents";
-               md += `- **[${type} // ${agents}]:** ${q.quote}\n`;
-             });
-             md += `\n`;
-          }
-          
-          if (parsed.grounding_sources && parsed.grounding_sources.length > 0) {
-             md += `### GROUNDED LEDGER\n`;
-             parsed.grounding_sources.forEach((src: any, idx: number) => {
-                 md += `${idx + 1}. [${src.title || 'Source'}](${src.url || '#'})\n`;
-             });
-             md += `\n`;
-          }
-        } catch (e) {
-          // Fallback if the AI fails to return valid JSON
-          md += `---\n\n## [ SYNTHESIS TOPOLOGY ]\n\n${msg.text}\n\n`;
-        }
-      } 
-      // 3. The Individual Agents
-      else {
-        let speaker = 'AGENT';
-        if (msg.roleId.startsWith('custom-')) {
-          const ca = conversation.customAgents.find((a: any) => a.id === msg.roleId);
-          if (ca) speaker = ca.name;
-        } else {
-          const agent = getActiveAgent(msg.roleId, conversation.roleSettings || settings, conversation.mode);
-          if (agent) speaker = agent.name;
-        }
-        const name = speaker.toUpperCase();
-        md += `### ${name}\n**Provocation:** ${msg.text}\n\n`;
-        
-        if (msg.fullAnalysis) {
-          md += `**Analysis:**\n${msg.fullAnalysis}\n\n`;
-        }
-        
-        if (msg.factCheck && msg.factCheck.status !== 'verifying') {
-          const statusMap = {
-            verified: 'VERIFIED',
-            warning: 'FACT-CHECK WARNING',
-            error: 'FACT-CHECK ERROR',
-            interpretation: 'INTERPRETATION CAUTION'
-          };
-          const statusLabel = statusMap[msg.factCheck.status] || 'NOTICE';
-          md += `> **[GROUNDED LEDGER: ${statusLabel}]**\n`;
-          if (msg.factCheck.text) {
-             md += `> ${msg.factCheck.text.split('\n').join('\n> ')}\n`;
-          }
-          if (msg.factCheck.sources && msg.factCheck.sources.length > 0) {
-             md += `>\n> **Sources:**\n`;
-             msg.factCheck.sources.forEach((src: any) => {
-                 md += `> - [${src.title || 'Source'}](${src.url || '#'})\n`;
-             });
-          }
-          md += `\n`;
-        }
-        
-        if (msg.deepDives && msg.deepDives.length > 0) {
-          msg.deepDives.forEach((d: any) => {
-            md += `> **Deep Dive (${d.keyword})**:\n> ${d.text.split('\n').join('\n> ')}\n\n`;
-            if (d.fullAnalysis) {
-              md += `> ${d.fullAnalysis.split('\n').join('\n> ')}\n\n`;
+        md += `## [ STRATEGIC LOGS ]\n\n`;
+        conversation.messages.forEach((msg: any) => {
+            let sender = (msg.roleId || 'AGENT').toUpperCase();
+            if (msg.roleId === 'synthesizer') sender = 'SYNTHESIZER';
+            else if (msg.roleId === 'user') sender = 'USER';
+            
+            md += `### ${sender} // ${msg.timestamp || ''}\n\n`;
+            
+            if (sender === 'SYNTHESIZER' && msg.synthesizerData) {
+              const synthData = msg.synthesizerData;
+              if (synthData.whitepaper || synthData.whitepaper_markdown) {
+                md += `#### Final Synthesis\n\n${synthData.whitepaper || synthData.whitepaper_markdown}\n\n`;
+              }
+              if (synthData.suggested_next_questions?.length > 0) {
+                md += `#### Strategic Vectors\n\n`;
+                synthData.suggested_next_questions.forEach((q: string) => {
+                  md += `- ${q}\n`;
+                });
+                md += `\n`;
+              }
+              if (synthData.fact_check?.length > 0) {
+                md += `#### Fact Verification Audit\n\n| Agent | Verdict | Claim & Context |\n|-------|---------|-----------------|\n`;
+                synthData.fact_check.forEach((f: any) => {
+                  md += `| ${f.agent} | ${f.verdict} | **"${f.claim}"**<br>>> ${f.context} |\n`;
+                });
+                md += `\n`;
+              }
+              if (synthData.heatmap_data?.length > 0) {
+                md += `#### Heatmap Summary\n\n| Agent 1 | Agent 2 | Score |\n|-------|---------|-------|\n`;
+                synthData.heatmap_data.forEach((h: any) => {
+                  md += `| ${h.agent1} | ${h.agent2} | ${h.score}/10 |\n`;
+                });
+                md += `\n`;
+              }
+              if (synthData.alignment_quotes?.length > 0) {
+                md += `#### Alignment Log\n\n`;
+                synthData.alignment_quotes.forEach((aq: any) => {
+                  md += `> **[${aq.type.toUpperCase()}]** (${aq.agents.join(', ')}): "${aq.quote}"\n\n`;
+                });
+              }
+            } else {
+              md += `${msg.text || ''}\n\n`;
             }
-          });
-        }
-      }
-    });
-
-    if (conversation.canvasText && conversation.canvasText.trim().length > 0) {
-      md += `---\n\n## [ THE CANVAS ]\n\n`;
-      md += `${conversation.canvasText}\n\n`;
-
-      const notes = conversation.marginNotes || [];
-      if (notes.length > 0) {
-          md += `### PROVOCATIONS / MARGIN NOTES\n\n`;
-          notes.forEach((note: any) => {
-              md += `> **[${note.agent.toUpperCase()}]** ON "${note.quote}":\n> ${note.comment}\n\n`;
-          });
-      }
+            
+            if (msg.fullAnalysis && msg.fullAnalysis.length > 0) {
+                md += `**ANALYSIS:**\n${msg.fullAnalysis}\n\n`;
+            }
+            md += `---\n\n`;
+        });
     }
 
+    md += `## [ SYNTHESIZED CANVAS ]\n\n`;
+    const canvasContent = conversation.canvasText || conversation.canvas;
+    if (typeof canvasContent === 'string') {
+        md += canvasContent;
+    } else {
+        md += `\`\`\`json\n${JSON.stringify(canvasContent, null, 2)}\n\`\`\``;
+    }
+
+    if (conversation.marginNotes && conversation.marginNotes.length > 0) {
+        md += `\n\n### [ PROVOCATIONS / MARGIN NOTES ]\n\n`;
+        conversation.marginNotes.forEach((note: any) => {
+            md += `> **[${(note.agent || note.author || 'SYSTEM').toUpperCase()}]** on "${note.quote}":\n> ${note.comment}\n\n`;
+        });
+    }
+
+    if (mode === 'full' && conversation.retrospective) {
+      md += `---\n\n## [ SESSION RESOLUTION ]\n\n`;
+      md += `**Status:** ${conversation.retrospective.status}\n\n`;
+      conversation.retrospective.answers.forEach((a: any) => {
+        md += `**Q:** ${a.question}\n**A:** ${a.answer}\n\n`;
+      });
+    }
+
+    md += `\n\n---\n*NODUS INTELLIGENCE SYNTHESIS ENGINE // [ END OF MD ARCHIVE ]*`;
     return md;
   };
 
-  const handleExport = () => {
+  const generateArtifactHTML = (conversation: any) => {
+    const title = (conversation.title || 'Nodus Report').toUpperCase();
+    const date = new Date().toLocaleDateString();
+
+    // Capture Conversation
+    let conversationHtml = '';
+    if (conversation.messages && conversation.messages.length > 0) {
+      conversationHtml = '<div class="section-title">[ STRATEGIC LOGS ]</div><div class="conversation-history">';
+      conversation.messages.forEach((msg: any) => {
+        const roleClass = msg.roleId === 'user' ? 'user-msg' : 'agent-msg';
+        
+        let contentHtml = msg.text ? msg.text.replace(/\n/g, '<br>') : '';
+        
+        if (msg.roleId === 'synthesizer' && msg.synthesizerData) {
+           const synthData = msg.synthesizerData;
+           contentHtml = '';
+           if (synthData.whitepaper || synthData.whitepaper_markdown) {
+             contentHtml += `<h4>Final Synthesis</h4><p>${(synthData.whitepaper || synthData.whitepaper_markdown).replace(/\n/g, '<br>')}</p>`;
+           }
+           if (synthData.suggested_next_questions?.length > 0) {
+             contentHtml += `<h4>Strategic Vectors</h4><ul>`;
+             synthData.suggested_next_questions.forEach((q: string) => {
+               contentHtml += `<li>${q}</li>`;
+             });
+             contentHtml += `</ul>`;
+           }
+           if (synthData.fact_check?.length > 0) {
+             contentHtml += `<h4>Fact Verification Audit</h4><table border="1" style="width: 100%; text-align: left; border-collapse: collapse;"><tr><th style="padding: 8px;">Agent</th><th style="padding: 8px;">Verdict</th><th style="padding: 8px;">Claim & Context</th></tr>`;
+             synthData.fact_check.forEach((f: any) => {
+               contentHtml += `<tr><td style="padding: 8px;">${f.agent}</td><td style="padding: 8px;">${f.verdict}</td><td style="padding: 8px;"><b>"${f.claim}"</b><br/>>> ${f.context}</td></tr>`;
+             });
+             contentHtml += `</table>`;
+           }
+           if (synthData.heatmap_data?.length > 0) {
+             contentHtml += `<h4>Heatmap Summary</h4><table border="1" style="width: 100%; text-align: left; border-collapse: collapse;"><tr><th style="padding: 8px;">Agent 1</th><th style="padding: 8px;">Agent 2</th><th style="padding: 8px;">Score</th></tr>`;
+             synthData.heatmap_data.forEach((h: any) => {
+               contentHtml += `<tr><td style="padding: 8px;">${h.agent1}</td><td style="padding: 8px;">${h.agent2}</td><td style="padding: 8px;">${h.score}/10</td></tr>`;
+             });
+             contentHtml += `</table>`;
+           }
+           if (synthData.alignment_quotes?.length > 0) {
+             contentHtml += `<h4>Alignment Log</h4>`;
+             synthData.alignment_quotes.forEach((aq: any) => {
+               contentHtml += `<blockquote><b>[${aq.type.toUpperCase()}]</b> (${aq.agents.join(', ')}): "${aq.quote}"</blockquote>`;
+             });
+           }
+        }
+        
+        conversationHtml += `
+          <div class="message-block ${roleClass}">
+            <div class="message-header">${(msg.roleId || 'AGENT').toUpperCase()} // ${msg.timestamp || ''}</div>
+            <div class="message-content">${contentHtml}</div>
+          </div>
+        `;
+      });
+      conversationHtml += '</div>';
+    }
+
+    let canvasDataHtml = '';
+    if (conversation.canvasText) {
+        canvasDataHtml = `
+            <div class="section-title">[ SYNTHESIZED PRODUCT ]</div>
+            <div class="canvas-fidelity-wrapper">
+                <pre>${conversation.canvasText}</pre>
+            </div>
+        `;
+    }
+
+    return `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>${title}</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script>
+        function toggleTheme() {
+            document.body.classList.toggle('dark-mode');
+        }
+    </script>
+    <style>
+        :root {
+            --bg: #ffffff;
+            --surface: #f9fafb;
+            --text: #111827;
+            --text-dim: #6b7280;
+            --border: #e5e7eb;
+            --accent: #2563eb;
+            --agent-bg: #f3f4f6;
+            --user-bg: #eff6ff;
+        }
+        body.dark-mode {
+            --bg: #09090b;
+            --surface: #121214;
+            --text: #F4F4F0;
+            --text-dim: #A1A1AA;
+            --border: #27272a;
+            --accent: #FFD100;
+            --agent-bg: rgba(255, 255, 255, 0.02);
+            --user-bg: rgba(37, 99, 235, 0.1);
+        }
+        * { box-sizing: border-box; }
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: 'Inter', -apple-system, system-ui, sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 40px 20px;
+            transition: background 0.3s, color 0.3s;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        .theme-toggle {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            color: var(--text);
+            padding: 8px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-family: inherit;
+            font-size: 14px;
+            transition: opacity 0.2s;
+        }
+        .theme-toggle:hover {
+            opacity: 0.8;
+        }
+        .header {
+            border-bottom: 2px solid var(--accent);
+            padding-bottom: 20px;
+            margin-bottom: 40px;
+        }
+        .title {
+            font-size: 32px;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            margin: 0;
+            color: var(--text);
+        }
+        .meta {
+            font-size: 12px;
+            color: var(--text-dim);
+            margin-top: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+        }
+        .section-title {
+            font-size: 14px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--accent);
+            margin: 60px 0 20px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid var(--border);
+        }
+        .charts-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 20px;
+        }
+        .chart-container, .heatmap-export {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            padding: 20px;
+            overflow: hidden;
+            border-radius: 8px;
+        }
+        .chart-container svg {
+            width: 100%;
+            height: auto;
+        }
+        .heatmap-export {
+            font-size: 12px;
+            overflow-x: auto;
+        }
+        .conversation-history {
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+        .message-block {
+            padding: 20px 24px;
+            border-radius: 8px;
+            background: var(--agent-bg);
+            border: 1px solid var(--border);
+        }
+        .user-msg { 
+            background: var(--user-bg);
+            border-color: var(--border);
+        }
+        .agent-msg { 
+            /* default agent bg */
+        }
+        .message-header {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-dim);
+            margin-bottom: 12px;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+        }
+        .message-content {
+            font-size: 15px;
+        }
+        .message-content h4 {
+            margin: 1.5em 0 0.5em;
+            font-size: 16px;
+            color: var(--text);
+        }
+        .message-content blockquote {
+            border-left: 3px solid var(--accent);
+            margin: 1em 0;
+            padding-left: 1em;
+            color: var(--text-dim);
+            font-style: italic;
+        }
+        .message-content table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1em 0;
+        }
+        .message-content th, .message-content td {
+            border: 1px solid var(--border);
+            padding: 10px;
+            text-align: left;
+        }
+        .message-content th {
+            background: var(--surface);
+        }
+        .canvas-fidelity-wrapper {
+            background: var(--surface);
+            color: var(--text);
+            padding: 30px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            overflow-x: auto;
+        }
+        .canvas-fidelity-wrapper pre {
+            white-space: pre-wrap;
+            word-break: break-word;
+            font-family: inherit;
+        }
+        @media print {
+            body { background: white; color: black; padding: 0; }
+            .canvas-fidelity-wrapper { border: none; }
+            .theme-toggle { display: none; }
+        }
+    </style>
+</head>
+<body class="dark-mode">
+    <button class="theme-toggle" onclick="toggleTheme()">Toggle Light/Dark</button>
+    <div class="container">
+        <div class="header">
+            <h1 class="title">${title}</h1>
+            <div class="meta">ARCHIVE ID: ${Math.random().toString(36).substr(2, 9).toUpperCase()} // RELEASE DATE: ${date}</div>
+        </div>
+
+        ${canvasDataHtml}
+        ${conversationHtml}
+
+        <div style="margin-top: 80px; text-align: center; font-size: 10px; color: var(--text-dim); border-top: 1px solid var(--border); padding-top: 40px;">
+            NODUS INTELLIGENCE SYNTHESIS ENGINE // [ END OF REPORT ]
+        </div>
+    </div>
+</body>
+</html>
+    `;
+  };
+
+  const handleSaveRetrospective = (data: SessionRetrospective) => {
+    if (!currentId) return;
+    updateConv(currentId, c => ({ ...c, retrospective: data }));
+  };
+
+  const handleExport = (format: 'md' | 'html' = 'md') => {
     if (!currentConv) return;
     
-    const exportedConv = {
-        ...currentConv,
-        canvasText: canvasText || currentConv.canvasText,
-        marginNotes: marginNotes.length > 0 ? marginNotes : currentConv.marginNotes
-    };
-    
-    const cleanMarkdown = generateArtifactMarkdown(exportedConv);
-    const safeFilename = `nodus-${(currentConv.title || 'report').toLowerCase().replace(/[^a-z0-9]+/g, '-')}.md`;
-    
-    const blob = new Blob([cleanMarkdown], { type: 'text/markdown;charset=utf-8' });
+    if (format === 'html') {
+        handleExportHTML();
+        return;
+    }
+
+    const md = generateArtifactMarkdown(currentConv, 'full');
+    const blob = new Blob([md], { type: 'text/markdown' });
     const url = URL.createObjectURL(blob);
-    
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = safeFilename;
-    document.body.appendChild(link);
-    link.click();
-    
-    document.body.removeChild(link);
+    const a = document.createElement('a');
+    a.href = url;
+    const safeTitle = (currentConv?.title || 'report').toLowerCase().replace(/\s+/g, '_');
+    a.download = `${safeTitle}_full.md`;
+    a.click();
     URL.revokeObjectURL(url);
+  };
+
+  const handleExportHTML = () => {
+    if (!currentConv) return;
+    const html = generateArtifactHTML(currentConv);
+    const blob = new Blob([html], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const safeTitle = (currentConv?.title || 'report').toLowerCase().replace(/\s+/g, '_');
+    a.download = `${safeTitle}.html`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleCopyText = () => {
+    if (!currentConv) return;
+    const md = generateArtifactMarkdown(currentConv, 'full');
+    
+    // Modern API
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(md).catch(err => {
+        console.error('Modern copy failed, trying fallback: ', err);
+        fallbackCopyText(md);
+      });
+    } else {
+      fallbackCopyText(md);
+    }
+  };
+
+  const fallbackCopyText = (text: string) => {
+    try {
+      const textArea = document.createElement("textarea");
+      textArea.value = text;
+      // Ensure it's not visible or causing layout shifts
+      textArea.style.position = "fixed";
+      textArea.style.left = "-9999px";
+      textArea.style.top = "0";
+      document.body.appendChild(textArea);
+      textArea.focus();
+      textArea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textArea);
+    } catch (err) {
+      console.error('Fallback copy failed: ', err);
+    }
   };
 
   const handleExportCanvas = () => {
     if (!currentConv) return;
-    
-    // Find the posed question (first user message)
-    const posedQuestion = currentConv.messages.find(m => m.roleId === 'user')?.text || "N/A";
-    
-    let md = `# CANVAS REPORT\n\n`;
-    md += `**Posed Question:**\n${posedQuestion}\n\n---\n\n`;
-    md += `## THE CANVAS\n\n`;
-    md += `${canvasText || currentConv.canvasText || "No text in canvas."}\n\n---\n\n`;
-    
-    const notes = marginNotes.length > 0 ? marginNotes : (currentConv.marginNotes || []);
-    if (notes.length > 0) {
-        md += `## PROVOCATIONS / MARGIN NOTES\n\n`;
-        notes.forEach(note => {
-            md += `> **[${note.agent.toUpperCase()}]** ON "${note.quote}":\n> ${note.comment}\n\n`;
-        });
-    }
-
-    const safeFilename = `canvas-${(currentConv.title || 'report').toLowerCase().replace(/[^a-z0-9]+/g, '-')}.md`;
-    
-    const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+    const md = generateArtifactMarkdown(currentConv, 'canvas');
+    const blob = new Blob([md], { type: 'text/markdown' });
     const url = URL.createObjectURL(blob);
-    
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = safeFilename;
-    document.body.appendChild(link);
-    link.click();
-    
-    document.body.removeChild(link);
+    const a = document.createElement('a');
+    a.href = url;
+    const safeTitle = (currentConv?.title || 'report').toLowerCase().replace(/\s+/g, '_');
+    a.download = `${safeTitle}_canvas.md`;
+    a.click();
     URL.revokeObjectURL(url);
   };
 
@@ -692,7 +1060,7 @@ let currentContext = recentMessages.map(m => {
 You are an orchestrator for a high-level Task Force.
 Below is the context and user input.
 
-CONTEXT/DOCUMENT:
+${getDebateRulesStr(latestConv, appMode)}CONTEXT/DOCUMENT:
 ${effectiveUserPrompt}
 
 PREVIOUS DISCUSSION:
@@ -993,17 +1361,20 @@ Return ONLY a valid JSON object with the following structure:
             Context (Previous Arguments):
             ${context}
 
-            Extract 2-3 core data points, statistics, or historical precedents mentioned by the operatives. You MUST use Google Search to verify them and provide the actual real-world data. Do not return empty.
+            Extract 2-3 NEW core data points, statistics, or historical precedents mentioned by the operatives. You MUST use Google Search to verify them and provide the actual real-world data. Do not return empty. Do NOT re-verify claims that have already been evaluated in previous rounds.
 
-            Output a valid JSON array of objects (do not include markdown blocks) with this schema:
-            [{ "agent": "Name", "claim": "The data point or statistic", "verdict": "VERIFIED" | "DEBUNKED" | "NEEDS CONTEXT", "context": "Actual real-world data from search" }]`,
+            IMPORTANT FORMATTING RULE: You MUST output a valid JSON array of objects inside a \`\`\`json markdown block. Do not concatenate words together. Ensure proper spacing between words.
+
+            Use this schema:
+            [\n  {\n    "agent": "Name",\n    "claim": "The data point...",\n    "verdict": "VERIFIED" | "DEBUNKED" | "NEEDS CONTEXT",\n    "context": "Actual real-world data from search"\n  }\n]`,
             config: {
               tools: [{ googleSearch: {} }],
               ...getAgentGenerationConfig(0.2, true)
             }
           }));
           
-          factCheckerResults = resilientJSONParse(factCheckResponse.text || '[]') || [];
+          let parsedResults = resilientJSONParse(factCheckResponse.text || '[]') || [];
+          factCheckerResults = parsedResults.filter((f: any) => !f.agent?.toLowerCase().includes('empiricist'));
 
           // Extract grounding metadata (sources)
           const groundingMetadata = factCheckResponse.candidates?.[0]?.groundingMetadata;
@@ -1034,10 +1405,10 @@ Return ONLY a valid JSON object with the following structure:
         // STEP 2: Synthesizer (With Injected Facts)
         // -----------------------------------------------------------------------
         const activeAgentNames = allAvailableAgents.filter(a => activeAgentIds.includes(a.id)).map(a => a.name).join(', ');
-        let prompt = `Synthesize the following discussion generated by these analytical operatives: ${activeAgentNames}\n\n${context}\n\nVERIFIED CONTEXT: You must base your final synthesis on these verified facts: ${JSON.stringify(factCheckerResults)}\n\nSynthesize these perspectives into a higher-order conclusion. You must also generate a 'radar_data' array for a 5-axis chart: ["Pragmatism", "Ethics", "Innovation", "Feasibility", "Risk"]. For each axis, assign a score (1-10) for every agent based on their arguments.`;
+        let prompt = `Synthesize the following discussion generated by these analytical operatives: ${activeAgentNames}\n\n${context}\n\nVERIFIED CONTEXT: You must base your final synthesis on these verified facts: ${JSON.stringify(factCheckerResults)}\n\nSynthesize these perspectives into a higher-order conclusion. You must also generate a 'radar_data' array for a 5-axis chart: ["Pragmatism", "Ethics", "Innovation", "Feasibility", "Risk"]. For each axis, assign a score (1-10) for every agent based on their arguments. You must also output an array of 2 to 3 'suggested_next_questions' that identify the most critical unresolved friction points to drive the next iteration of the debate.`;
         
         if (taskForcePurpose) {
-          prompt = `You are moderating a curated panel. The specific goal of this session is: ${taskForcePurpose}. When you generate your final 3 provocative questions, they MUST NOT be generic. They must be aggressively tailored to help the user achieve this specific goal using the friction you just observed between the agents.\n\n${prompt}`;
+          prompt = `You are moderating a curated panel. The specific goal of this session is: ${taskForcePurpose}. When you generate your final 3 provocative questions (suggested_next_questions), they MUST NOT be generic. They must be aggressively tailored to help the user achieve this specific goal using the friction you just observed between the agents.\n\n${prompt}`;
         }
 
         const activeSynth = getActiveAgent('synthesizer', currentConv?.roleSettings || settings, currentConv?.mode);
@@ -1099,9 +1470,14 @@ Return ONLY a valid JSON object with the following structure:
                     required: ["agents", "type", "quote"]
                   }
                 },
+                suggested_next_questions: {
+                  type: Type.ARRAY,
+                  description: "2 to 3 suggested next questions based on the most critical unresolved friction points in the current debate.",
+                  items: { type: Type.STRING }
+                },
                 whitepaper_markdown: { type: Type.STRING }
               },
-              required: ["radar_data", "heatmap_data", "alignment_quotes", "whitepaper_markdown"]
+              required: ["radar_data", "heatmap_data", "alignment_quotes", "suggested_next_questions", "whitepaper_markdown"]
             },
           },
         }));
@@ -1201,7 +1577,7 @@ Return ONLY a valid JSON object with the following structure:
           return `${agentName}: ${m.fullAnalysis || m.text}`;
         }).join('\n\n');
 
-        const prompt = `Topic: ${lastUserMsg.text}\n\nPrevious thoughts from the council:\n${currentContext}\n\nNow, provide your perspective on the topic, maintaining your persona and reacting to the previous thoughts if relevant.`;
+        const prompt = `${getDebateRulesStr(currentConv, currentConv?.mode)}Topic: ${lastUserMsg.text}\n\nPrevious thoughts from the council:\n${currentContext}\n\nNow, provide your perspective on the topic, maintaining your persona and reacting to the previous thoughts if relevant.`;
 
         const config: any = {
             systemInstruction: agent.systemInstruction + "\n\nCRITICAL SYSTEM DIRECTIVE: You must output a valid JSON object with EXACTLY two keys: 'provocation' (a short quote under 250 chars) and 'full_analysis' (a deep multi-paragraph breakdown). Do not include markdown blocks.",
@@ -1328,10 +1704,10 @@ Return ONLY a valid JSON object with the following structure:
         return `${agentName}: ${m.fullAnalysis || m.text}`;
       }).join('\n\n');
       
-      let prompt = `Synthesize the following discussion:\n\n${context}\n\nIMPORTANT: The previous synthesis contained the following factual inaccuracies which MUST be corrected in this new version:\n${factCheckFeedback}\n\nEnsure the new synthesis is factually accurate and addresses these points.`;
+      let prompt = `Synthesize the following discussion:\n\n${context}\n\nIMPORTANT: The previous synthesis contained the following factual inaccuracies which MUST be corrected in this new version:\n${factCheckFeedback}\n\nEnsure the new synthesis is factually accurate and addresses these points. You must also output an array of 2 to 3 'suggested_next_questions' that identify the most critical unresolved friction points to drive the next iteration of the debate.`;
       
       if (taskForcePurpose) {
-        prompt = `You are moderating a curated panel. The specific goal of this session is: ${taskForcePurpose}. When you generate your final 3 provocative questions, they MUST NOT be generic. They must be aggressively tailored to help the user achieve this specific goal using the friction you just observed between the agents.\n\n${prompt}`;
+        prompt = `You are moderating a curated panel. The specific goal of this session is: ${taskForcePurpose}. When you generate your final 3 provocative questions (suggested_next_questions), they MUST NOT be generic. They must be aggressively tailored to help the user achieve this specific goal using the friction you just observed between the agents.\n\n${prompt}`;
       }
 
       const activeSynth = getActiveAgent('synthesizer', currentConv?.roleSettings || settings, currentConv?.mode);
@@ -1384,9 +1760,14 @@ Return ONLY a valid JSON object with the following structure:
                   required: ["agent", "claim", "verdict", "context"]
                 }
               },
+              suggested_next_questions: {
+                type: Type.ARRAY,
+                description: "2 to 3 suggested next questions based on the most critical unresolved friction points in the current debate.",
+                items: { type: Type.STRING }
+              },
               whitepaper_markdown: { type: Type.STRING }
             },
-            required: ["heatmap_data", "alignment_quotes", "fact_check", "whitepaper_markdown"]
+            required: ["heatmap_data", "alignment_quotes", "fact_check", "suggested_next_questions", "whitepaper_markdown"]
           }
         },
       }));
@@ -1912,17 +2293,20 @@ Rewrite your response. You MUST maintain your exact core argument, analytical fr
           Context (Previous Arguments):
           ${context}
 
-          Extract 2-3 core data points, statistics, or historical precedents mentioned by the operatives. You MUST use Google Search to verify them and provide the actual real-world data. Do not return empty.
+          Extract 2-3 NEW core data points, statistics, or historical precedents mentioned by the operatives. You MUST use Google Search to verify them and provide the actual real-world data. Do not return empty. Do NOT re-verify claims that have already been evaluated in previous rounds.
 
-          Output a valid JSON array of objects (do not include markdown blocks) with this schema:
-          [{ "agent": "Name", "claim": "The data point or statistic", "verdict": "VERIFIED" | "DEBUNKED" | "NEEDS CONTEXT", "context": "Actual real-world data from search" }]`,
+          IMPORTANT FORMATTING RULE: You MUST output a valid JSON array of objects inside a \`\`\`json markdown block. Do not concatenate words together. Ensure proper spacing between words.
+
+          Use this schema:
+          [\n  {\n    "agent": "Name",\n    "claim": "The data point...",\n    "verdict": "VERIFIED" | "DEBUNKED" | "NEEDS CONTEXT",\n    "context": "Actual real-world data from search"\n  }\n]`,
           config: {
             tools: [{ googleSearch: {} }],
             ...getAgentGenerationConfig(0.2, true)
           }
         }));
         
-        factCheckerResults = resilientJSONParse(factCheckResponse.text || '[]') || [];
+        let parsedResults = resilientJSONParse(factCheckResponse.text || '[]') || [];
+        factCheckerResults = parsedResults.filter((f: any) => !f.agent?.toLowerCase().includes('empiricist'));
 
         // Extract grounding metadata (sources)
         const groundingMetadata = factCheckResponse.candidates?.[0]?.groundingMetadata;
@@ -1963,10 +2347,10 @@ Rewrite your response. You MUST maintain your exact core argument, analytical fr
         strategyInstruction = "STRATEGY: EXECUTIVE BRIEF. Format as a cold, bulleted CEO briefing. No philosophical fluff. Actionable intelligence only.";
       }
 
-      let prompt = `User Query: "${userMsg.text}"\n\nCouncil Responses from these analytical operatives: ${activeAgentNames}\n${context}\n\nVERIFIED CONTEXT: You must base your final synthesis on these verified facts: ${JSON.stringify(factCheckerResults)}\n\n${strategyInstruction}\n\nYou must also generate a 'radar_data' array for a 5-axis chart: ["Pragmatism", "Ethics", "Innovation", "Feasibility", "Risk"]. For each axis, assign a score (1-10) for every agent based on their arguments.`;
+      let prompt = `User Query: "${userMsg.text}"\n\nCouncil Responses from these analytical operatives: ${activeAgentNames}\n${context}\n\nVERIFIED CONTEXT: You must base your final synthesis on these verified facts: ${JSON.stringify(factCheckerResults)}\n\n${strategyInstruction}\n\nYou must also generate a 'radar_data' array for a 5-axis chart: ["Pragmatism", "Ethics", "Innovation", "Feasibility", "Risk"]. For each axis, assign a score (1-10) for every agent based on their arguments. You must also output an array of 2 to 3 'suggested_next_questions' that identify the most critical unresolved friction points to drive the next iteration of the debate.`;
 
       if (taskForcePurpose) {
-        prompt = `You are moderating a curated panel. The specific goal of this session is: ${taskForcePurpose}. When you generate your final 3 provocative questions, they MUST NOT be generic. They must be aggressively tailored to help the user achieve this specific goal using the friction you just observed between the agents.\n\n${prompt}`;
+        prompt = `You are moderating a curated panel. The specific goal of this session is: ${taskForcePurpose}. When you generate your final 3 provocative questions (suggested_next_questions), they MUST NOT be generic. They must be aggressively tailored to help the user achieve this specific goal using the friction you just observed between the agents.\n\n${prompt}`;
       }
 
       const modelName = synthAgent.model || 'gemini-3.1-pro-preview';
@@ -2026,9 +2410,14 @@ Rewrite your response. You MUST maintain your exact core argument, analytical fr
                   required: ["agents", "type", "quote"]
                 }
               },
+              suggested_next_questions: {
+                type: Type.ARRAY,
+                description: "2 to 3 suggested next questions based on the most critical unresolved friction points in the current debate.",
+                items: { type: Type.STRING }
+              },
               whitepaper_markdown: { type: Type.STRING }
             },
-            required: ["heatmap_data", "radar_data", "alignment_quotes", "whitepaper_markdown"]
+            required: ["heatmap_data", "radar_data", "alignment_quotes", "suggested_next_questions", "whitepaper_markdown"]
           },
           tools: [{ googleSearch: {} }]
         },
@@ -2265,7 +2654,7 @@ Rewrite your response. You MUST maintain your exact core argument, analytical fr
     await Promise.all(sortedParticipatingAgents.map(async (roleId) => {
       try {
         const agent = getActiveAgent(roleId, activeSettings, appMode);
-        const prompt = `You are ${agent.name}. You and other members of The Council have just analyzed the following problem: "${userMsg.text}".
+        const prompt = `${getDebateRulesStr(currentConv, appMode)}You are ${agent.name}. You and other members of The Council have just analyzed the following problem: "${userMsg.text}".
 
 Here are the exact responses from the other council members:
 ${councilContext}
@@ -2363,7 +2752,9 @@ Write a concise rebuttal directly addressing that specific agent by name. Defend
           customAgents: [], 
           activeAgentIds: (mode === 'LAB' ? LAB_ROLES : ROLES).map(r => r.id), 
           roleSettings: settings,
-          mode
+          mode,
+          debateFormat: 'OPEN',
+          pushbackLevel: 'BALANCED'
         };
         setConversations(prev => [newConv, ...prev]);
         setCurrentId(newConv.id);
@@ -2372,12 +2763,11 @@ Write a concise rebuttal directly addressing that specific agent by name. Defend
   };
 
   const handleClear = () => {
-    if (window.confirm('Clear all history?')) {
-      const newConv = { id: uuidv4(), title: 'New Conversation', messages: [], createdAt: Date.now(), customAgents: [], activeAgentIds: currentRoles.map(r => r.id), roleSettings: settings, mode: appMode };
-      setConversations([newConv]);
-      setCurrentId(newConv.id);
-      localStorage.removeItem(STORAGE_KEY);
-    }
+    // Removed confirm for sandbox compatibility
+    const newConv = { id: uuidv4(), title: 'New Conversation', messages: [], createdAt: Date.now(), customAgents: [], activeAgentIds: currentRoles.map(r => r.id), roleSettings: settings, mode: appMode };
+    setConversations([newConv]);
+    setCurrentId(newConv.id);
+    localStorage.removeItem(STORAGE_KEY);
   };
 
   const handleAddCustomAgent = (agent: CustomAgent) => {
@@ -2392,14 +2782,13 @@ Write a concise rebuttal directly addressing that specific agent by name. Defend
 
   const handleDeleteCustomAgent = (agentId: string) => {
     if (!currentId) return;
-    if (window.confirm('Are you sure you want to delete this custom persona?')) {
-      updateConv(currentId, c => ({
-        ...c,
-        customAgents: c.customAgents.filter(a => a.id !== agentId),
-        activeAgentIds: c.activeAgentIds.filter(id => id !== agentId),
-        agentOrder: c.agentOrder ? c.agentOrder.filter(id => id !== agentId) : undefined
-      }));
-    }
+    // Removed confirm for sandbox compatibility
+    updateConv(currentId, c => ({
+      ...c,
+      customAgents: c.customAgents.filter(a => a.id !== agentId),
+      activeAgentIds: c.activeAgentIds.filter(id => id !== agentId),
+      agentOrder: c.agentOrder ? c.agentOrder.filter(id => id !== agentId) : undefined
+    }));
   };
 
   const handleSelectTaskForce = (taskForce: TaskForce) => {
@@ -2509,7 +2898,6 @@ Use exactly these keys: {"full_analysis": "...", "provocation": "..."}.
       handleSelectTaskForce(parsedTaskForce);
     } catch (error) {
       console.error("Failed to generate custom task force:", error);
-      alert("Failed to assemble task force. Please try again.");
     }
   };
 
@@ -2691,7 +3079,6 @@ Review the following document. Do not rewrite it entirely. Return a JSON array o
       }
     } catch (error) {
       console.error("Failed to generate task force review:", error);
-      alert("Failed to generate review. Please try again.");
     } finally {
       setIsReviewingCanvas(false);
     }
@@ -2734,11 +3121,22 @@ Review the following document. Do not rewrite it entirely. Return a JSON array o
     })
     .filter(Boolean) as (CustomAgent | ReturnType<typeof getActiveAgent>)[];
 
+  if (conversations.length === 0 || !currentId) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-black text-zinc-500 font-mono text-sm tracking-widest uppercase">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-8 h-8 border-2 border-zinc-800 border-t-zinc-400 rounded-full animate-spin" />
+          Loading Nodus...
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="flex h-screen bg-black text-zinc-300 font-sans selection:bg-zinc-700 selection:text-[#F4F4F0] overflow-hidden">
+    <div className="flex h-screen bg-black text-zinc-300 font-sans selection:bg-zinc-700 selection:text-[#F4F4F0] overflow-hidden" data-main-layout>
       
       {/* Sidebar */}
-      <div className={`fixed inset-y-0 left-0 z-40 w-64 bg-zinc-950 border-r border-zinc-800 transform transition-transform duration-300 ease-in-out ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} lg:relative lg:translate-x-0 flex flex-col`}>
+      <div className={`fixed inset-y-0 left-0 z-40 w-64 shrink-0 bg-zinc-950 border-r border-zinc-800 transform transition-all duration-300 ease-in-out flex flex-col ${isSidebarOpen ? 'translate-x-0 lg:ml-0' : '-translate-x-full lg:-ml-64 lg:border-r-0'} lg:static lg:translate-x-0`}>
         <div className="p-4 border-b border-zinc-800 flex justify-between items-center shrink-0">
           <h2 className="font-mono text-sm tracking-widest uppercase text-zinc-500">History</h2>
           <button onClick={createNewConversation} className="p-1 hover:text-[#F4F4F0] transition-colors" title="New Conversation">
@@ -2747,14 +3145,27 @@ Review the following document. Do not rewrite it entirely. Return a JSON array o
         </div>
         <div className="flex-1 overflow-y-auto p-2 space-y-1">
           {conversations.map(c => (
-            <button 
-              key={c.id} 
-              onClick={() => { setCurrentId(c.id); setIsSidebarOpen(false); }}
-              className={`w-full text-left p-3 text-sm font-mono truncate transition-colors flex items-center gap-2 ${c.id === currentId ? 'bg-zinc-900 text-[#F4F4F0]' : 'text-zinc-500 hover:bg-zinc-900/50 hover:text-zinc-300'}`}
-            >
-              {c.parentId && <GitBranch size={12} className="shrink-0 text-[#E03C31]" />}
-              <span className="truncate">{c.title}</span>
-            </button>
+            <div key={c.id} className="relative group flex items-center">
+              <button 
+                onClick={() => { setCurrentId(c.id); setIsSidebarOpen(false); }}
+                className={`w-full text-left p-3 pr-10 text-sm font-mono truncate transition-colors flex items-center gap-2 ${c.id === currentId ? 'bg-zinc-900 text-[#F4F4F0]' : 'text-zinc-500 hover:bg-zinc-900/50 hover:text-zinc-300'}`}
+              >
+                {c.parentId && <GitBranch size={12} className="shrink-0 text-[#E03C31]" />}
+                <span className="truncate">{c.title}</span>
+                {c.retrospective && (
+                  <div className="flex items-center gap-1 ml-auto shrink-0 mr-1" title="Resolution Recorded">
+                    <Check size={12} className="text-green-500" />
+                  </div>
+                )}
+              </button>
+              <button
+                onClick={(e) => handleDeleteConversation(c.id, e)}
+                className="absolute right-2 p-1.5 text-zinc-600 hover:text-[#E03C31] hover:bg-zinc-800 rounded opacity-0 group-hover:opacity-100 transition-all"
+                title="Delete Session"
+              >
+                <Trash2 size={14} />
+              </button>
+            </div>
           ))}
         </div>
       </div>
@@ -2773,7 +3184,7 @@ Review the following document. Do not rewrite it entirely. Return a JSON array o
           
           {/* Left Side: Logo & Name */}
           <div className="flex items-center gap-4 snap-start shrink-0">
-            <button className="lg:hidden p-2 -ml-2 text-[#F4F4F0] hover:text-[#FFD100]" onClick={() => setIsSidebarOpen(true)}>
+            <button className="p-2 -ml-2 text-[#F4F4F0] hover:text-[#FFD100]" onClick={() => setIsSidebarOpen(prev => !prev)}>
               <Menu size={20} />
             </button>
             <NodusLogo className="w-10 h-10 shrink-0" />
@@ -2809,7 +3220,7 @@ Review the following document. Do not rewrite it entirely. Return a JSON array o
           {/* Right Side: Global Controls */}
           <div className="flex items-center gap-2 shrink-0 snap-end ml-4">
             <button 
-              onClick={handleExport}
+              onClick={() => handleExport()}
               className="p-2 text-[#F4F4F0] hover:text-[#FFD100] transition-colors shrink-0"
               title="Export Conversation"
             >
@@ -2903,17 +3314,91 @@ Review the following document. Do not rewrite it entirely. Return a JSON array o
           {messages.length === 0 ? (
             <EmptyState>
               {appMode === 'COUNCIL' && (
-                <button
-                  onClick={() => setIsTaskForceGridOpen(true)}
-                  className="flex items-center justify-center gap-2 px-6 py-3 bg-[#09090b] border-2 border-[#E03C31] hover:bg-[#E03C31] text-[#F4F4F0] transition-all font-mono text-xs uppercase tracking-widest w-full"
-                >
-                  <Grid size={16} />
-                  Select Task Force
-                </button>
+                <div className="space-y-4 w-full text-left mt-6">
+                  <details className="group border border-zinc-800/50 bg-[#09090b] open:bg-zinc-900/30 transition-colors">
+                    <summary className="cursor-pointer p-3 flex items-center justify-between text-[10px] md:text-xs tracking-widest uppercase text-zinc-500 hover:text-zinc-300 list-none outline-none">
+                      <span className="flex items-center gap-2">
+                        <Settings2 size={14} />
+                        Debate Configuration
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] text-zinc-600 hidden md:inline">
+                          [{currentConv?.debateFormat || 'OPEN'} / {(currentConv?.pushbackLevel || 'BALANCED').replace('_', ' ')}]
+                        </span>
+                        <ChevronDown size={12} className="group-open:rotate-180 transition-transform" />
+                      </div>
+                    </summary>
+                    <div className="p-4 border-t border-zinc-800/50 space-y-6 text-xs md:text-sm font-mono tracking-wide text-zinc-300">
+                      <div className="space-y-3">
+                         <label className="text-zinc-500 uppercase text-[10px] tracking-widest">Format Protocol</label>
+                         <select 
+                           value={currentConv?.debateFormat || 'OPEN'} 
+                           onChange={(e) => currentId && updateConv(currentId, c => ({ ...c, debateFormat: e.target.value as any }))}
+                           className="w-full bg-black border border-zinc-800 p-2 text-zinc-300 outline-none focus:border-zinc-500 appearance-none rounded-none cursor-pointer"
+                         >
+                           <option value="OPEN">Standard Open Debate</option>
+                           <option value="OXFORD">Oxford-Style (Structured)</option>
+                           <option value="SOCRATIC">Socratic Questioning</option>
+                         </select>
+                      </div>
+                      
+                      <div className="space-y-3">
+                         <div className="flex justify-between items-center text-[10px] uppercase tracking-widest text-zinc-500">
+                           <label>Pushback Severity</label>
+                           <span className="text-[#E03C31] font-bold">{
+                             (currentConv?.pushbackLevel || 'BALANCED') === 'COLLABORATIVE' ? 'Collaborative' :
+                             (currentConv?.pushbackLevel || 'BALANCED') === 'BALANCED' ? 'Balanced' : "Devil's Advocate"
+                           }</span>
+                         </div>
+                         <input 
+                           type="range" 
+                           min="0" max="2" step="1"
+                           value={
+                             (currentConv?.pushbackLevel || 'BALANCED') === 'COLLABORATIVE' ? 0 :
+                             (currentConv?.pushbackLevel || 'BALANCED') === 'BALANCED' ? 1 : 2
+                           }
+                           onChange={(e) => {
+                             const val = e.target.value;
+                             const level = val === '0' ? 'COLLABORATIVE' : val === '1' ? 'BALANCED' : 'DEVILS_ADVOCATE';
+                             currentId && updateConv(currentId, c => ({ ...c, pushbackLevel: level as any }))
+                           }}
+                           className="w-full accent-[#E03C31] h-1 bg-zinc-800 rounded-none appearance-none cursor-pointer"
+                         />
+                         <div className="flex justify-between text-[9px] uppercase tracking-wider text-zinc-600">
+                           <span>Synthesis</span>
+                           <span>Balanced</span>
+                           <span>Hostile</span>
+                         </div>
+                      </div>
+                    </div>
+                  </details>
+
+                  <button
+                    onClick={() => setIsTaskForceGridOpen(true)}
+                    className="flex items-center justify-center gap-2 px-6 py-3 bg-[#09090b] border-2 border-[#E03C31] hover:bg-[#E03C31] text-[#F4F4F0] transition-all font-mono text-xs uppercase tracking-widest w-full"
+                  >
+                    <Grid size={16} />
+                    Select Task Force
+                  </button>
+                </div>
               )}
             </EmptyState>
           ) : (
             <div className="max-w-6xl mx-auto w-full space-y-16">
+              
+              {/* Active Protocol Header */}
+              {appMode === 'COUNCIL' && currentConv && (
+                <div className="flex items-center gap-4 border-b border-zinc-800/50 pb-4 mt-6">
+                  <div className="text-[10px] font-mono uppercase tracking-widest text-zinc-500">
+                    Protocol: <span className="text-[#F4F4F0] leading-none">{currentConv.debateFormat || 'OPEN'}</span>
+                  </div>
+                  <div className="text-zinc-800">/</div>
+                  <div className="text-[10px] font-mono uppercase tracking-widest text-zinc-500">
+                    Resistance: <span className="text-[#E03C31] leading-none">{(currentConv.pushbackLevel || 'BALANCED').replace('_', ' ')}</span>
+                  </div>
+                </div>
+              )}
+
               {groupedMessages.map((group, i) => (
                 <div key={group.userMsg.id} className="space-y-6">
                   {/* User Message */}
@@ -3006,10 +3491,37 @@ Review the following document. Do not rewrite it entirely. Return a JSON array o
                         isExtractMode={isExtractMode}
                         onExtractText={handleExtractTextToCanvas}
                         onExtractToBuffer={handleExtractToBuffer}
+                        onActionClick={(q) => handleSend(q)}
                       />
-                      {!group.synthMsg.isTyping && (
-                        <ExportArtifactBlock conversation={currentConv} onExport={handleExport} onExportCanvas={handleExportCanvas} />
-                      )}
+                    {!group.synthMsg.isTyping && (
+                      <div className="flex flex-col gap-4">
+                        <div className="flex justify-center">
+                           <button 
+                            onClick={() => setIsRetrospectiveModalOpen(true)}
+                            className={`p-4 transition-all w-full max-w-sm flex items-center justify-center gap-3 border font-mono text-xs tracking-widest uppercase shadow-lg ${
+                              currentConv.retrospective 
+                              ? 'border-green-500/50 text-green-500 bg-green-500/5' 
+                              : 'border-zinc-800 bg-zinc-900/50 text-zinc-400 hover:text-[#F4F4F0] hover:border-zinc-400 hover:bg-zinc-800'
+                            }`}
+                            title="Resolve Session / Evaluate"
+                          >
+                            {currentConv.retrospective ? (
+                                <Check size={16} className="animate-pulse" />
+                            ) : (
+                                <Star size={16} />
+                            )}
+                            {currentConv.retrospective ? 'Resolution Recorded' : 'Resolve Session & Evaluate'}
+                          </button>
+                        </div>
+                        <ExportArtifactBlock 
+                          conversation={currentConv} 
+                          onExport={() => handleExport('md')} 
+                          onExportHTML={handleExportHTML}
+                          onCopyText={handleCopyText}
+                          onExportCanvas={handleExportCanvas} 
+                        />
+                      </div>
+                    )}
                     </div>
                   )}
 
@@ -3124,7 +3636,7 @@ Review the following document. Do not rewrite it entirely. Return a JSON array o
                 </button>
                 
                 {/* Active Task Force Indicator */}
-                {currentConv?.taskForceName && (
+                {appMode !== 'LAB' && currentConv?.taskForceName && (
                   <>
                     <div className="w-px h-3 bg-zinc-700 shrink-0"></div>
                     {/* Added truncate so long names end with '...' instead of wrapping to a new line */}
@@ -3160,9 +3672,24 @@ Review the following document. Do not rewrite it entirely. Return a JSON array o
           </div>
         </div>
 
+        {/* Resizer Handle */}
+        {isDesktopCanvasOpen && (
+          <div
+            className={`hidden lg:block w-2 cursor-col-resize z-20 shrink-0 transition-colors ${isDraggingCanvas ? 'bg-[#E03C31]' : 'bg-transparent hover:bg-zinc-800'}`}
+            onMouseDown={(e) => {
+              e.preventDefault();
+              setIsDraggingCanvas(true);
+            }}
+          />
+        )}
+
         {/* Right Column: Canvas */}
         {isDesktopCanvasOpen && (
-          <div className={`hidden lg:flex ${marginNotes.length > 0 ? 'w-1/2' : 'w-1/3'} flex-col h-full bg-[#F4F4F0] text-black relative transition-all duration-300`}>
+          <div 
+             data-canvas-container="true"
+             className={`hidden lg:flex flex-col h-full bg-[#F4F4F0] text-black relative ${isDraggingCanvas ? '' : 'transition-all duration-300'}`}
+             style={{ width: `${canvasWidth}%` }}
+          >
             <CanvasEditor
               text={canvasText}
               onChange={setCanvasText}
@@ -3201,6 +3728,13 @@ Review the following document. Do not rewrite it entirely. Return a JSON array o
           agentInput: prev.agentInput + usage.input,
           agentOutput: prev.agentOutput + usage.output
         }))}
+      />
+
+      <RetrospectiveModal 
+        isOpen={isRetrospectiveModalOpen}
+        onClose={() => setIsRetrospectiveModalOpen(false)}
+        onSave={handleSaveRetrospective}
+        sessionTitle={currentConv?.title || 'Current Session'}
       />
 
       {/* Roster Modal */}

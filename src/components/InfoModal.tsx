@@ -67,6 +67,20 @@ export const InfoModal: React.FC<InfoModalProps> = ({ isOpen, onClose }) => {
             </p>
           </section>
 
+          <section>
+            <h3 className="text-[#F4F4F0] font-bold uppercase tracking-widest mb-2">04. Structural Configurations</h3>
+            <p className="leading-relaxed">
+              You command the structural parameters of the debate loop. By default, the engine operates as an <strong>Open Debate</strong> with a <strong>Balanced</strong> resistance. You can escalate this to hostile <strong>Devil's Advocate</strong> stress-testing to break weak assumptions, or enforce structure using strict <strong>Oxford-Style</strong> or pure <strong>Socratic</strong> interrogation parameters.
+            </p>
+          </section>
+
+          <section>
+            <h3 className="text-zinc-500 font-bold uppercase tracking-widest mb-2">05. Session Resolution</h3>
+            <p className="leading-relaxed">
+              Every strategic inquiry must reach a conclusion. Use the <strong className="text-[#F4F4F0]">Session Retrospective</strong> to evaluate if the results actually solved your problem. By scoring the satisfaction and answering grounding questions, you build a historical record of your decision-making accuracy and blind spots. 
+            </p>
+          </section>
+
         </div>
         
       </div>

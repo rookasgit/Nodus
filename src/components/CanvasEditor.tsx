@@ -1,6 +1,5 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { Loader2, AlertTriangle, Check, X, Edit3 } from 'lucide-react';
-import { match } from 'fuzzysort';
 
 export interface MarginNote {
   id: string;
@@ -32,7 +31,7 @@ const findBestMatch = (text: string, quote: string) => {
   }
 
   // 2. Whitespace & punctuation agnostic match
-  const sanitize = (s: string) => s.replace(/[\s\W_]+/g, '').toLowerCase();
+  const sanitize = (s: string) => (s || '').replace(/[\s\W_]+/g, '').toLowerCase();
   const sanitizedQuote = sanitize(quote);
   if (!sanitizedQuote) return null;
 
@@ -217,7 +216,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
   const noteQuoteText = isDark ? 'text-zinc-400' : 'text-zinc-600';
 
   return (
-    <div className={`flex flex-col h-full w-full ${bgClass} ${textClass} relative`}>
+    <div className={`flex flex-col h-full w-full ${bgClass} ${textClass} relative`} data-canvas-container>
       {/* Header */}
       <div className={`p-4 border-b ${borderClass} flex justify-between items-center ${bgClass} shrink-0`}>
         <h2 className="font-mono font-bold uppercase tracking-widest text-sm">Canvas</h2>

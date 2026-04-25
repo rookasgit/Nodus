@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { motion } from 'motion/react';
+import { motion } from 'framer-motion';
 import { X, GitBranch, Sparkles, Loader2 } from 'lucide-react';
 import { getAI, withRetry } from '../lib/gemini';
 import { InfoTooltip } from './InfoTooltip';

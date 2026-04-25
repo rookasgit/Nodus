@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { TASK_FORCES, TaskForce } from '../taskForces';
-import { motion } from 'motion/react';
+import { motion } from 'framer-motion';
 import { ArrowRight, Users, Sparkles, Loader2 } from 'lucide-react';
 
 interface TaskForceGridProps {

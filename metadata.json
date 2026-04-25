@@ -1,6 +1,6 @@
 {
   "name": "Nodus",
-  "description": "Strategic Synthesis Engine",
+  "description": "Strategic Synthesis Engine with Session Resolution & Decision Retrospective",
   "requestFramePermissions": [],
   "majorCapabilities": []
 }

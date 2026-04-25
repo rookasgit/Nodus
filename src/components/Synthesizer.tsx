@@ -1,7 +1,7 @@
 import React from 'react';
 import ReactECharts from 'echarts-for-react';
 import Markdown from 'react-markdown';
-import { motion } from 'motion/react';
+import { motion } from 'framer-motion';
 import { BrutalistHeatmap } from './BrutalistHeatmap';
 import { SpectrumRadar } from './SpectrumRadar';
 import { LAB_ROLES, ROLES } from '../agents';
@@ -39,6 +39,7 @@ interface SynthesizerData {
   fact_check?: FactCheckItem[];
   whitepaper_markdown?: string;
   grounding_sources?: { title: string, url: string }[];
+  suggested_next_questions?: string[];
   
   // Legacy formats (kept for safety)
   echarts_heatmap?: any;
@@ -54,9 +55,10 @@ interface SynthesizerProps {
   sessionTokens?: { agentInput: number, agentOutput: number, synthInput: number, synthOutput: number };
   isExtractMode?: boolean;
   onExtractText?: (text: string) => void;
+  onActionClick?: (question: string) => void;
 }
 
-export function Synthesizer({ data, sessionTokens, isExtractMode, onExtractText }: SynthesizerProps) {
+export function Synthesizer({ data, sessionTokens, isExtractMode, onExtractText, onActionClick }: SynthesizerProps) {
   if (!data) return null;
 
   // Extract unique agents for the heatmap if data exists
@@ -159,6 +161,27 @@ export function Synthesizer({ data, sessionTokens, isExtractMode, onExtractText 
                </ul>
             </div>
           )}
+
+          {/* Suggested Next Questions */}
+          {data.suggested_next_questions && data.suggested_next_questions.length > 0 && (
+            <div className="mt-8 pt-6 border-t border-[#F4F4F0]/10">
+               <h4 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-4">
+                 Strategic Vectors (Suggested Next Actions)
+               </h4>
+               <div className="flex flex-col md:flex-row flex-wrap gap-3">
+                 {data.suggested_next_questions.map((q, idx) => (
+                   <button
+                     key={idx}
+                     onClick={() => onActionClick && onActionClick(q)}
+                     className="px-4 py-2 border border-white hover:bg-white hover:text-black bg-transparent text-white text-xs font-mono transition-colors text-left flex items-start gap-2"
+                   >
+                     <span className="font-bold opacity-50">&gt;</span>
+                     <span className="flex-1">{q}</span>
+                   </button>
+                 ))}
+               </div>
+            </div>
+          )}
         </motion.div>
 
         {/* MIDDLE SECTION: Fact Checker (High Contrast Ledger) */}
@@ -215,16 +238,16 @@ export function Synthesizer({ data, sessionTokens, isExtractMode, onExtractText 
           </div>
         </motion.div>
 
-        {/* BOTTOM SECTION: Heatmap & Evidence (2 Columns) */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        {/* BOTTOM SECTION: Heatmap & Evidence (Sequential) */}
+        <div className="flex flex-col gap-8">
           
-          {/* Left Column: Heatmap (Fallback if radar data is missing) */}
+          {/* Heatmap (Fallback if radar data is missing) */}
           {data.heatmap_data && heatmapAgents.length > 0 && (
             <motion.div 
                initial={{ opacity: 0, y: 20 }}
                whileInView={{ opacity: 1, y: 0 }}
                viewport={{ once: true, amount: 0.3 }}
-               className="bg-[#050505] border border-[#F4F4F0]/10 rounded-xl p-4 relative min-h-[400px] flex flex-col"
+               className="hidden md:flex bg-[#050505] border border-[#F4F4F0]/10 rounded-xl p-4 relative flex-col"
             >
               <div className="absolute top-4 left-4 text-[10px] text-gray-500 uppercase tracking-widest z-10">
                 [ 03 ] Interaction_Heatmap_v2.0
@@ -235,12 +258,12 @@ export function Synthesizer({ data, sessionTokens, isExtractMode, onExtractText 
             </motion.div>
           )}
 
-          {/* Right Column: Alignment Quotes */}
+          {/* Alignment Quotes */}
           <motion.div 
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true, amount: 0.3 }}
-            className={`flex flex-col gap-4 h-[400px] overflow-y-auto pr-2 custom-scrollbar ${!data.heatmap_data ? 'lg:col-span-2' : ''}`}
+            className={`flex flex-col gap-4 overflow-y-auto pr-2 custom-scrollbar`}
           >
             <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest sticky top-0 bg-[#0a0a0a] py-2 z-10 border-b border-[#F4F4F0]/10">
               [ 04 ] Alignment_Log

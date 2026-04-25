@@ -119,3 +119,84 @@ body {
   pointer-events: none;
   background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.05'/%3E%3C/svg%3E");
 }
+
+/* --- PRINT OPTIMIZATION --- */
+@media print {
+  /* Reset height and overflow for the entire stack */
+  html, body, #root, [data-main-layout], 
+  [data-main-layout] > div, 
+  [data-main-layout] main,
+  #chat-messages-container {
+    height: auto !important;
+    overflow: visible !important;
+    position: static !important;
+    display: block !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  /* Force white background and black text to save ink and ensure visibility */
+  body, #root, [data-main-layout], [data-main-layout] main {
+    background: white !important;
+    color: black !important;
+  }
+
+  /* Hide UI boilerplate */
+  header, 
+  nav, 
+  aside, 
+  button, 
+  input, 
+  select, 
+  textarea,
+  .lg\:hidden,
+  .fixed,
+  .sticky,
+  .absolute:not([data-message-block] *),
+  .ambient-glow,
+  .bg-dot-pattern,
+  .bg-grain {
+    display: none !important;
+  }
+
+  /* Re-enable display for message blocks */
+  [data-message-block] {
+    display: flex !important;
+    flex-direction: column !important;
+    border: 1px solid #ccc !important;
+    margin-bottom: 2rem !important;
+    padding: 1rem !important;
+    background: #f9f9f9 !important;
+    color: black !important;
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  /* Ensure text is readable */
+  .text-zinc-300, .text-gray-300, .text-zinc-400, .text-zinc-500 {
+    color: #333 !important;
+  }
+
+  .markdown-body {
+    color: black !important;
+  }
+
+  /* Ensure canvas is also handled if present */
+  [data-canvas-container] {
+    display: block !important;
+    height: auto !important;
+    border: 2px solid black !important;
+    padding: 2rem !important;
+    margin-top: 2rem !important;
+  }
+
+  /* Layout adjustments */
+  .grid {
+    display: block !important;
+  }
+
+  .max-w-6xl {
+    max-width: none !important;
+    width: 100% !important;
+  }
+}
