@@ -42,7 +42,7 @@ The gap between reading an insight and acting on an insight should be zero milli
 - **Session Resolution & Retrospective** — Formalize your thinking. Evaluate sessions based on blind spots uncovered and risk acceptance. Resolved sessions are indexed in your history with satisfaction scores and green-check status.
 - **Intelligence Exports** — Generate HTML Reports, or extract your work as a focused markdown brief.
 
-Known rough edges: mobile is currently broken, Auto-Task Force quality varies with prompt specificity, Lab↔Canvas visual consistency is uneven. Contributions welcome.
+Known rough edges: UI/UX, flow and consistency between desktop and mobile. Contributions welcome.
 
 ---
 
