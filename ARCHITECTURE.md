@@ -8,6 +8,7 @@ Nodus is built as an experimental, client-side heavy React Co-Creation Studio, p
 * **Charts/Viz:** `echarts-for-react` mapping structured LLM output to visualization components.
 * **LLM Engine:** `@google/genai` (utilizing Gemini 3.1/3.0 Pro/Flash, and Gemini 2.5 Flash for image generation).
 * **Fuzzy Matching:** `fuzzysort` for resilient document anchoring.
+* **Persistence:** idb-keyval (IndexedDB) for high-capacity, non-blocking session storage and local-first migration.
 
 ---
 
@@ -23,6 +24,7 @@ The foundation of the application sits in `appMode === 'LAB'` or `appMode === 'C
 Whenever a multi-part process requires parsing, Nodus utilizes strict `responseMimeType: "application/json"` combined with explicit JSON definitions in `responseSchema`.
 * **The Synthesizer Panel:** The synthesis stage forces the LLM to output specific keys: `heatmap_data` (agent-to-agent alignment arrays), `radar_data` (numerical mapping on specific cognitive axes), `alignment_quotes`, and a `whitepaper_markdown`.
 * **Deterministic Fallback:** Where search integrations prevent the Gemini API from using `responseMimeType`, the system employs a resilient `try/catch` and regex-based string extraction to manually rip the payload out of standard markdown formatting.
+* **Strategic Looping:** The responseSchema now includes suggested_next_questions: string[]. These are parsed and rendered as ActionPills that feed back into the main orchestrator to maintain conversation momentum.
 
 ### 3. The Canvas Editor & Fuzzy Anchoring
 Traditional AI "Reviewers" break entirely if the user alters the text containing the targeted margin comment. Nodus uses a custom implementation in `src/components/CanvasEditor.tsx`.
@@ -44,10 +46,15 @@ Because Multi-Agent simulations can drift off base reality, the `Synthesizer` ph
 Nodus utilizes a non-linear state model to support its Timeline Branching (Multiverse) feature.
 Immutable History Trees: Conversations are not stored as flat arrays. Instead, they are structured as a forest of trees where each node contains a parentId. Branching a timeline creates a deep-copy of the current path and initializes a new branch node, preventing state-leakage between parallel "realities."
 Cumulative Context Passing: To ensure agents in the "War Room" are aware of each other, Nodus employs a cumulative context strategy. Each agent's generation is appended to a temporary ephemeralContext that is passed to the subsequent agent in the queue, simulating a real-time "listening" environment.
-Local Persistence: The entire application state—including custom agents, canvas drafts, and branched timelines—is serialized to localStorage via a custom hook, ensuring a "Warm Start" experience without a backend database.
 
 ### 7. Meta-Prompting & Agent Hydration
 Nodus uses a "Prompt-to-Prompt" architecture for its Auto-Task Force feature. When a user defines a goal, a high-temperature 'Director' prompt is invoked to generate the JSON definitions (name, persona, baseInstruction) for three specialized agents. These are then dynamically hydrated into the React state as CustomAgent components.
+
+### 8. Session Persistence & Evaluation Logic
+Nodus has migrated from localStorage to an IndexedDB-backed Session Manager. This allows for large-scale conversation trees without hitting browser quota limits.
+State Hydration: A specialized hook performs a one-time migration of legacy JSON strings from localStorage into structured IDB records.
+Retrospective Metadata: Session resolution data (satisfaction scores and grounding answers) is stored as a SessionRetrospective object within the session payload, ensuring that the "utility" of a thought-exercise is indexed alongside the content.
+Failsafe Exports: The export engine utilizes Blob APIs and navigator.clipboard fallbacks to ensure that even in restricted iframe environments, users can extract their Intellectual Property.
 
 ## Philosophy of Design
 All systems inside Nodus are designed to prevent the platform from doing the work *for* the author. By extracting discrete citations, highlighting specific friction graphs, and allowing the human to write and reflow text around AI constraints smoothly, it operates as an exoskeleton rather than an autopilot. 
