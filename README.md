@@ -6,7 +6,7 @@ The most valuable thing an AI tool can do is make your thinking harder, not easi
 
 Nodus is a Co-Creation Studio engineered to solve the 'Middle Manager Paradox' of generative AI. While traditional LLMs average out human thought into polite consensus, Nodus uses a multi-agent **'War Room'** architecture to induce **Epistemological Friction**. By combining a fuzzy-anchored living canvas with deterministic JSON **Synthesis Topology** and a **Grounded Ledger** for research auditing, Nodus transforms AI from a subservient intern into a rigorous intellectual sparring partner. It is a masterclass in high-craft React architecture, multi-agent orchestration, and agency-first HCI design.
 
-![Nodus empty state](screenshots/Screenshot_2026-04-24_145803.png)
+![Nodus empty state](screenshots/Screenshot 2026-04-24 145803.png)
 
 You can test it directly here with your Google account: [https://ai.studio/apps/a93f47da-3e1c-4f6f-90fe-947817306510](https://ai.studio/apps/2a995ca8-f342-45df-80d5-5cd60d4959a0?fullscreenApplet=true)
 
