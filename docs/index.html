@@ -730,17 +730,31 @@
     <!-- Slide 13: Fuzzy Anchoring -->
     <section class="slide" id="slide-13">
         <div class="slide-content">
-            <h3 class="reveal">Legacy Fix</h3>
+            <h3 class="reveal">Custom Implementation</h3>
             <h2 class="reveal">Fuzzy Anchoring.</h2>
             <p class="reveal">Our search algorithm ignores whitespace and punctuation shifts to ensure margin notes
                 survive your stylistic refactoring.</p>
             <p class="reveal"
                 style="font-size: 0.85rem; margin-top: 1rem; border-left: 2px solid var(--accent-pink); padding-left: 1rem; color: var(--text-secondary); line-height: 1.4;">
-                Margin notes carry state: active, dismissed, integrated. This forces a decision — not just
-                reading the critique, but taking a position on it. That makes your thinking process visible and
-                actionable.</p>
+                Five-step custom algorithm — no external dependency. Exact match first,
+then character-sequence regex with whitespace and punctuation injected
+between every character. A 2.5× length guard prevents runaway matches
+across paragraphs if the user deletes surrounding text.</p>
             <div class="code-block reveal">
-                raw(quote) === raw(doc.substring(i, i+len))
+// 1. Try exact match first
+let idx = text.indexOf(quote);
+
+// 2. If not found, build whitespace-agnostic regex
+if (idx === -1) {
+  const chars = quote.replace(/[\s\W_]+/g, '').toLowerCase();
+  const pattern = chars.split('').join('[\\s\\W_]*');
+  const match = new RegExp(pattern, 'i').exec(text);
+  
+  // 3. Reject if match spans > 2.5x original length (runaway guard)
+  if (match && match[0].length < quote.length * 2.5) {
+    idx = match.index;
+  }
+}
             </div>
         </div>
         <div class="slide-num">13/21</div>
@@ -863,7 +877,7 @@
                 <div>
                     <ul class="bullet-list">
                         <li><strong>@google/genai</strong> (Gemini 2.5, 3/3.1 Pro/Flash)</li>
-                        <li><strong>fuzzysort</strong> (fuzzy anchoring)</li>
+                        <li><strong>custom regex anchoring</strong> (no dependency)</li>
                         <li><strong>indexedDB</strong> (storage) </li>
                     </ul>
                 </div>
