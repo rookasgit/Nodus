@@ -3,7 +3,7 @@
 Nodus is built as an experimental, client-side heavy React Co-Creation Studio, powered entirely by Google's Gemini API via `@google/genai`. Unlike standard chat wrappers, Nodus treats the LLM primarily as an *engine for distinct cognitive state models*, prioritizing branching, iteration, and rigorous synthesis over general-purpose answers.
 
 ## Tech Stack Overview
-* **Framework:** React 18 / Vite / TypeScript
+* **Framework:** React 19 / Vite / TypeScript
 * **Styling:** Tailwind CSS + Framer Motion (for viewport transitions/animations).
 * **Charts/Viz:** `recharts` (for the Spectrum Radar) and `echarts-for-react` (for Alignment Heatmaps), mapping structured LLM output to visualization components.
 * **LLM Engine:** `@google/genai` (utilizing Gemini 3.1/3.0 Pro/Flash, and Gemini 2.5 Flash for image generation).
