@@ -37,14 +37,16 @@ export const SpectrumRadar: React.FC<SpectrumRadarProps> = ({
   ];
 
   return (
-    <div className="w-full bg-[#050505] rounded-xl p-0 mb-6 relative [&_.recharts-surface]:outline-none [&_.recharts-surface]:focus:outline-none [&_.recharts-wrapper]:outline-none [&_.recharts-wrapper]:focus:outline-none">
-      <div className="h-[320px] md:h-[400px] w-full">
+    <div className="w-full bg-[#050505] rounded-xl p-0 md:p-6 mb-6 relative [&_.recharts-surface]:outline-none [&_.recharts-surface]:focus:outline-none [&_.recharts-wrapper]:outline-none [&_.recharts-wrapper]:focus:outline-none flex flex-col md:flex-row items-center">
+      <div className="h-[320px] md:h-[400px] w-full md:w-3/4">
         <ResponsiveContainer
           width="100%"
           height="100%"
+          minWidth={0}
+          minHeight={0}
           className="outline-none focus:outline-none"
         >
-          <RadarChart cx="50%" cy="50%" outerRadius="60%" data={data}>
+          <RadarChart cx="50%" cy="50%" outerRadius="65%" data={data}>
             <PolarGrid stroke="#3f3f46" />
             <PolarAngleAxis
               dataKey="axis"
@@ -92,13 +94,13 @@ export const SpectrumRadar: React.FC<SpectrumRadarProps> = ({
         </ResponsiveContainer>
       </div>
 
-      <div className="flex flex-wrap justify-center gap-x-6 gap-y-3 pb-6 px-4">
+      <div className="flex flex-col gap-y-3 pb-6 md:pb-0 px-4 w-full md:w-1/4 pt-6 md:pt-0">
         {agents.map((agent, index) => {
           const color = BRUTALIST_PALETTE[index % BRUTALIST_PALETTE.length];
           return (
-            <div key={`legend-${index}`} className="flex items-center gap-2">
+            <div key={`legend-${index}`} className="flex items-center gap-3">
               <div
-                className="w-2 h-2 rounded-full shadow-[0_0_8px_currentColor]"
+                className="w-2 h-2 rounded-full shadow-[0_0_8px_currentColor] shrink-0"
                 style={{ backgroundColor: color, color }}
               />
               <span className="text-[10px] md:text-xs font-mono uppercase tracking-wider text-zinc-400">

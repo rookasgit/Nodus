@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-console.log('App.tsx module loading...');
+
 import { v4 as uuidv4 } from 'uuid';
 import { ROLES, LAB_ROLES, SYNTHESIZER, getActiveAgent, UserSettings, DEFAULT_SETTINGS, CustomAgent } from './agents';
 import { TASK_FORCES, TaskForce } from './taskForces';
@@ -173,20 +173,14 @@ export default function App() {
   useEffect(() => {
     const runDiagnostics = () => {
       console.group('--- ENVIRONMENT DIAGNOSTICS ---');
-      console.log('In iframe:', window.self !== window.top);
-      console.log('Print API available:', typeof window.print === 'function');
-      
       try {
         const testBlob = new Blob(['test'], { type: 'text/plain' });
         const testUrl = URL.createObjectURL(testBlob);
-        console.log('Object URL created successfully:', testUrl);
         URL.revokeObjectURL(testUrl);
       } catch (e) {
         console.error('Object URL creation blocked:', e);
       }
 
-      console.log('window.open available:', typeof window.open === 'function');
-      console.log('User Agent:', navigator.userAgent);
       console.groupEnd();
     };
     runDiagnostics();
@@ -543,24 +537,30 @@ export default function App() {
     return md;
   };
 
-  const generateArtifactHTML = (conversation: any) => {
+const generateArtifactHTML = (conversation: any) => {
     const title = (conversation.title || 'Nodus Report').toUpperCase();
     const date = new Date().toLocaleDateString();
 
     // Capture Conversation
     let conversationHtml = '';
     if (conversation.messages && conversation.messages.length > 0) {
-      conversationHtml = '<div class="section-title">[ STRATEGIC LOGS ]</div><div class="conversation-history">';
+      conversationHtml = '<div class="section-title">Strategic Logs & Transcript</div><div class="conversation-history">';
       conversation.messages.forEach((msg: any) => {
-        const roleClass = msg.roleId === 'user' ? 'user-msg' : 'agent-msg';
+        const isUser = msg.roleId === 'user';
+        const isSynthesizer = msg.roleId === 'synthesizer';
+        const roleName = (msg.roleId || 'AGENT').toUpperCase();
         
         let contentHtml = msg.text ? msg.text.replace(/\n/g, '<br>') : '';
         
-        if (msg.roleId === 'synthesizer' && msg.synthesizerData) {
+        if (isSynthesizer && msg.synthesizerData) {
            const synthData = msg.synthesizerData;
            contentHtml = '';
            if (synthData.whitepaper || synthData.whitepaper_markdown) {
-             contentHtml += `<h4>Final Synthesis</h4><p>${(synthData.whitepaper || synthData.whitepaper_markdown).replace(/\n/g, '<br>')}</p>`;
+             let text = synthData.whitepaper || synthData.whitepaper_markdown;
+             text = text.replace(/### (.*?)(?=\n|$)/g, '<br><strong>$1</strong><br>');
+             text = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+             text = text.replace(/\n/g, '<br>');
+             contentHtml += `<h4>Executive Synthesis</h4><p>${text}</p>`;
            }
            if (synthData.suggested_next_questions?.length > 0) {
              contentHtml += `<h4>Strategic Vectors</h4><ul>`;
@@ -570,30 +570,42 @@ export default function App() {
              contentHtml += `</ul>`;
            }
            if (synthData.fact_check?.length > 0) {
-             contentHtml += `<h4>Fact Verification Audit</h4><table border="1" style="width: 100%; text-align: left; border-collapse: collapse;"><tr><th style="padding: 8px;">Agent</th><th style="padding: 8px;">Verdict</th><th style="padding: 8px;">Claim & Context</th></tr>`;
+             contentHtml += `<h4>Fact Verification Audit</h4><table><tr><th>Agent</th><th>Verdict</th><th>Claim & Context</th></tr>`;
              synthData.fact_check.forEach((f: any) => {
-               contentHtml += `<tr><td style="padding: 8px;">${f.agent}</td><td style="padding: 8px;">${f.verdict}</td><td style="padding: 8px;"><b>"${f.claim}"</b><br/>>> ${f.context}</td></tr>`;
+               contentHtml += `<tr><td>${f.agent}</td><td><strong>${f.verdict}</strong></td><td><b>"${f.claim}"</b><br/><span class="context-text">>> ${f.context}</span></td></tr>`;
              });
              contentHtml += `</table>`;
            }
-           if (synthData.heatmap_data?.length > 0) {
-             contentHtml += `<h4>Heatmap Summary</h4><table border="1" style="width: 100%; text-align: left; border-collapse: collapse;"><tr><th style="padding: 8px;">Agent 1</th><th style="padding: 8px;">Agent 2</th><th style="padding: 8px;">Score</th></tr>`;
-             synthData.heatmap_data.forEach((h: any) => {
-               contentHtml += `<tr><td style="padding: 8px;">${h.agent1}</td><td style="padding: 8px;">${h.agent2}</td><td style="padding: 8px;">${h.score}/10</td></tr>`;
-             });
-             contentHtml += `</table>`;
+           if (synthData.heatmap_summary) {
+             contentHtml += `<h4>Friction Topology</h4><p>${synthData.heatmap_summary}</p>`;
            }
            if (synthData.alignment_quotes?.length > 0) {
              contentHtml += `<h4>Alignment Log</h4>`;
              synthData.alignment_quotes.forEach((aq: any) => {
-               contentHtml += `<blockquote><b>[${aq.type.toUpperCase()}]</b> (${aq.agents.join(', ')}): "${aq.quote}"</blockquote>`;
+               contentHtml += `<blockquote><b>[${aq.type.toUpperCase()}]</b> (${aq.agents.join(', ')}):<br/>"${aq.quote}"</blockquote>`;
              });
            }
         }
         
+        // Assign specific CSS classes for styling
+        let blockClass = "message-block";
+        if (isUser) blockClass += " user-msg";
+        if (isSynthesizer) blockClass += " synthesizer-msg";
+
+        let displayName = roleName;
+        if (!isUser && !isSynthesizer) {
+           if (msg.roleId.startsWith('custom-') && conversation.customAgents) {
+              const ca = conversation.customAgents.find((a: any) => a.id === msg.roleId);
+              if (ca) displayName = ca.name.toUpperCase();
+           } else {
+              const agent = ROLES.find(r => r.id === msg.roleId) || LAB_ROLES.find(r => r.id === msg.roleId);
+              if (agent) displayName = agent.name.toUpperCase();
+           }
+        }
+
         conversationHtml += `
-          <div class="message-block ${roleClass}">
-            <div class="message-header">${(msg.roleId || 'AGENT').toUpperCase()} // ${msg.timestamp || ''}</div>
+          <div class="${blockClass}">
+            <div class="message-header">${displayName} <span class="timestamp">${msg.timestamp || ''}</span></div>
             <div class="message-content">${contentHtml}</div>
           </div>
         `;
@@ -604,220 +616,289 @@ export default function App() {
     let canvasDataHtml = '';
     if (conversation.canvasText) {
         canvasDataHtml = `
-            <div class="section-title">[ SYNTHESIZED PRODUCT ]</div>
+            <div class="section-title">Active Document Canvas</div>
             <div class="canvas-fidelity-wrapper">
                 <pre>${conversation.canvasText}</pre>
             </div>
         `;
     }
 
-    return `
-<!DOCTYPE html>
+    if (conversation.marginNotes && conversation.marginNotes.length > 0) {
+        canvasDataHtml += `
+            <div class="section-title">Margin Notes & Provocations</div>
+            <div style="display: flex; flex-direction: column; gap: 20px;">
+                ${conversation.marginNotes.map((note: any) => `
+                    <div style="border-left: 3px solid var(--border-dark); padding-left: 15px;">
+                        <div style="font-family: var(--font-mono); font-size: 11px; text-transform: uppercase; font-weight: 600; margin-bottom: 5px; color: var(--text-muted);">${note.agent}</div>
+                        <div style="font-style: italic; color: var(--text-muted); margin-bottom: 5px;">"${note.quote}"</div>
+                        <div style="font-size: 14px;">${note.comment}</div>
+                    </div>
+                `).join('')}
+            </div>
+        `;
+    }
+
+    return `<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>${title}</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <script>
-        function toggleTheme() {
-            document.body.classList.toggle('dark-mode');
-        }
-    </script>
+    <title>${title} - Nodus Report</title>
     <style>
+        /* MINIMALIST REPORT THEME */
         :root {
             --bg: #ffffff;
-            --surface: #f9fafb;
-            --text: #111827;
-            --text-dim: #6b7280;
-            --border: #e5e7eb;
-            --accent: #2563eb;
-            --agent-bg: #f3f4f6;
-            --user-bg: #eff6ff;
+            --text-main: #111111;
+            --text-muted: #555555;
+            --border-light: #e5e5e5;
+            --border-dark: #000000;
+            --font-serif: ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
+            --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+            --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
         }
-        body.dark-mode {
-            --bg: #09090b;
-            --surface: #121214;
-            --text: #F4F4F0;
-            --text-dim: #A1A1AA;
-            --border: #27272a;
-            --accent: #FFD100;
-            --agent-bg: rgba(255, 255, 255, 0.02);
-            --user-bg: rgba(37, 99, 235, 0.1);
-        }
-        * { box-sizing: border-box; }
+
         body {
             background: var(--bg);
-            color: var(--text);
-            font-family: 'Inter', -apple-system, system-ui, sans-serif;
-            line-height: 1.6;
+            color: var(--text-main);
+            font-family: var(--font-serif);
+            line-height: 1.7;
             margin: 0;
             padding: 40px 20px;
-            transition: background 0.3s, color 0.3s;
+            font-size: 15px;
+            -webkit-font-smoothing: antialiased;
         }
+
         .container {
-            max-width: 800px;
+            max-width: 800px; /* Optimal reading width for a report */
             margin: 0 auto;
         }
-        .theme-toggle {
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            background: var(--surface);
-            border: 1px solid var(--border);
-            color: var(--text);
-            padding: 8px 12px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-family: inherit;
-            font-size: 14px;
-            transition: opacity 0.2s;
-        }
-        .theme-toggle:hover {
-            opacity: 0.8;
-        }
+
+        /* HEADER */
         .header {
-            border-bottom: 2px solid var(--accent);
-            padding-bottom: 20px;
-            margin-bottom: 40px;
+            border-bottom: 2px solid var(--border-dark);
+            padding-bottom: 30px;
+            margin-bottom: 50px;
         }
+
         .title {
-            font-size: 32px;
+            font-family: var(--font-sans);
+            font-size: 28px;
             font-weight: 700;
             letter-spacing: -0.02em;
-            margin: 0;
-            color: var(--text);
+            margin: 0 0 16px 0;
+            color: var(--text-main);
         }
-        .meta {
-            font-size: 12px;
-            color: var(--text-dim);
-            margin-top: 10px;
-            text-transform: uppercase;
-            letter-spacing: 0.1em;
-        }
-        .section-title {
-            font-size: 14px;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.1em;
-            color: var(--accent);
-            margin: 60px 0 20px;
-            padding-bottom: 10px;
-            border-bottom: 1px solid var(--border);
-        }
-        .charts-grid {
+
+        .meta-grid {
             display: grid;
-            grid-template-columns: 1fr;
-            gap: 20px;
-        }
-        .chart-container, .heatmap-export {
-            background: var(--surface);
-            border: 1px solid var(--border);
-            padding: 20px;
-            overflow: hidden;
-            border-radius: 8px;
-        }
-        .chart-container svg {
-            width: 100%;
-            height: auto;
-        }
-        .heatmap-export {
-            font-size: 12px;
-            overflow-x: auto;
-        }
-        .conversation-history {
-            display: flex;
-            flex-direction: column;
-            gap: 24px;
-        }
-        .message-block {
-            padding: 20px 24px;
-            border-radius: 8px;
-            background: var(--agent-bg);
-            border: 1px solid var(--border);
-        }
-        .user-msg { 
-            background: var(--user-bg);
-            border-color: var(--border);
-        }
-        .agent-msg { 
-            /* default agent bg */
-        }
-        .message-header {
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 10px;
+            font-family: var(--font-mono);
             font-size: 11px;
-            font-weight: 600;
-            color: var(--text-dim);
-            margin-bottom: 12px;
-            letter-spacing: 0.05em;
+            color: var(--text-muted);
             text-transform: uppercase;
+            letter-spacing: 0.05em;
         }
-        .message-content {
-            font-size: 15px;
+
+        .meta-item {
+            border-top: 1px solid var(--border-light);
+            padding-top: 8px;
         }
-        .message-content h4 {
-            margin: 1.5em 0 0.5em;
-            font-size: 16px;
-            color: var(--text);
+
+        /* SECTIONS */
+        .section-title {
+            font-family: var(--font-sans);
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--text-main);
+            margin: 60px 0 30px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid var(--border-light);
         }
-        .message-content blockquote {
-            border-left: 3px solid var(--accent);
-            margin: 1em 0;
-            padding-left: 1em;
-            color: var(--text-dim);
-            font-style: italic;
-        }
-        .message-content table {
-            width: 100%;
-            border-collapse: collapse;
-            margin: 1em 0;
-        }
-        .message-content th, .message-content td {
-            border: 1px solid var(--border);
-            padding: 10px;
-            text-align: left;
-        }
-        .message-content th {
-            background: var(--surface);
-        }
+
+        /* CANVAS AREA */
         .canvas-fidelity-wrapper {
-            background: var(--surface);
-            color: var(--text);
-            padding: 30px;
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            overflow-x: auto;
+            padding: 0;
+            border-left: 4px solid var(--border-light);
+            padding-left: 20px;
         }
+
         .canvas-fidelity-wrapper pre {
             white-space: pre-wrap;
             word-break: break-word;
-            font-family: inherit;
+            font-family: var(--font-serif);
+            font-size: 16px;
+            margin: 0;
         }
+
+        /* CONVERSATION TRANSCRIPT */
+        .conversation-history {
+            display: flex;
+            flex-direction: column;
+            gap: 40px;
+        }
+
+        .message-block {
+            margin-bottom: 30px;
+        }
+
+        .message-block.user-msg {
+            font-weight: bold;
+        }
+
+        .message-block.synthesizer-msg {
+            margin-top: 50px;
+            border-top: 2px solid var(--border-dark);
+            padding-top: 30px;
+        }
+
+        .message-header {
+            font-family: var(--font-mono);
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-muted);
+            margin-bottom: 12px;
+            letter-spacing: 0.05em;
+        }
+
+        .timestamp {
+            font-weight: normal;
+            color: #999;
+            margin-left: 8px;
+        }
+
+        .message-content {
+            color: var(--text-main);
+        }
+
+        /* SYNTHESIS FORMATTING */
+        .message-content h4 {
+            font-family: var(--font-sans);
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin: 2.5em 0 1em;
+            color: var(--text-main);
+        }
+        
+        .message-content h4:first-child {
+            margin-top: 0;
+        }
+
+        .message-content ul {
+            padding-left: 20px;
+        }
+
+        .message-content li {
+            margin-bottom: 8px;
+        }
+
+        /* TABLES */
+        .message-content table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1.5em 0;
+            font-family: var(--font-sans);
+            font-size: 13px;
+        }
+
+        .message-content th, .message-content td {
+            border-top: 1px solid var(--border-light);
+            border-bottom: 1px solid var(--border-light);
+            padding: 8px 12px;
+            text-align: left;
+            vertical-align: top;
+        }
+
+        .message-content th {
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            font-size: 11px;
+            border-top: none;
+            border-bottom: 2px solid var(--border-light);
+        }
+
+        .context-text {
+            color: var(--text-muted);
+            display: block;
+            margin-top: 6px;
+        }
+
+        /* QUOTES */
+        .message-content blockquote {
+            border-left: 3px solid var(--border-light);
+            margin: 1.5em 0;
+            padding: 5px 0 5px 15px;
+            font-style: italic;
+            color: var(--text-muted);
+        }
+
+        .message-content blockquote b {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            font-style: normal;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-main);
+        }
+
+        /* FOOTER */
+        .footer {
+            margin-top: 100px;
+            text-align: center;
+            font-family: var(--font-mono);
+            font-size: 10px;
+            color: var(--text-muted);
+            border-top: 1px solid var(--border-light);
+            padding-top: 40px;
+            letter-spacing: 0.1em;
+        }
+
+        /* PRINT OPTIMIZATION */
         @media print {
-            body { background: white; color: black; padding: 0; }
-            .canvas-fidelity-wrapper { border: none; }
-            .theme-toggle { display: none; }
+            body { padding: 0; font-size: 12pt; }
+            .container { max-width: 100%; }
+            .canvas-fidelity-wrapper, .message-block.synthesizer-msg { 
+                background: transparent; 
+                border: 1px solid #000; 
+            }
+            .section-title { page-break-after: avoid; }
+            table, blockquote { page-break-inside: avoid; }
         }
     </style>
 </head>
-<body class="dark-mode">
-    <button class="theme-toggle" onclick="toggleTheme()">Toggle Light/Dark</button>
+<body>
     <div class="container">
         <div class="header">
             <h1 class="title">${title}</h1>
-            <div class="meta">ARCHIVE ID: ${Math.random().toString(36).substr(2, 9).toUpperCase()} // RELEASE DATE: ${date}</div>
+            <div class="meta-grid">
+                <div class="meta-item">
+                    <strong>Report ID</strong><br>
+                    ${Math.random().toString(36).substr(2, 9).toUpperCase()}
+                </div>
+                <div class="meta-item">
+                    <strong>Generation Date</strong><br>
+                    ${date}
+                </div>
+                <div class="meta-item">
+                    <strong>System</strong><br>
+                    Nodus Intelligence
+                </div>
+            </div>
         </div>
 
         ${canvasDataHtml}
         ${conversationHtml}
 
-        <div style="margin-top: 80px; text-align: center; font-size: 10px; color: var(--text-dim); border-top: 1px solid var(--border); padding-top: 40px;">
-            NODUS INTELLIGENCE SYNTHESIS ENGINE // [ END OF REPORT ]
+        <div class="footer">
+            CONFIDENTIAL ARCHIVE // GENERATED BY NODUS SYSTEMS
         </div>
     </div>
 </body>
-</html>
-    `;
-  };
+</html>`;
+};
 
   const handleSaveRetrospective = (data: SessionRetrospective) => {
     if (!currentId) return;
@@ -961,8 +1042,6 @@ export default function App() {
 
     // Explicitly derive current agents based on mode
     const currentAgents = appMode === 'LAB' ? LAB_ROLES : ROLES;
-    console.log("GENERATING WITH MODE:", appMode);
-    console.log("ACTIVE AGENTS:", currentAgents.map(a => a.name));
 
     const userMsg: Message = { id: uuidv4(), roleId: 'user', text, attachments };
     
@@ -1352,7 +1431,14 @@ Return ONLY a valid JSON object with the following structure:
         // -----------------------------------------------------------------------
         let factCheckerResults: any[] = [];
         try {
-          const activeAgentNames = allAvailableAgents.filter(a => activeAgentIds.includes(a.id)).map(a => a.name).join(', ');
+          const activeAgentNames = activeAgentIds.map(id => {
+            if (id.startsWith('custom-')) {
+              const ca = customAgents.find(a => a.id === id);
+              return ca ? ca.name : id;
+            }
+            const std = allAvailableAgents.find(a => a.id === id);
+            return std ? std.name : id;
+          }).join(', ');
           const factCheckResponse = await withRetry(() => getAI().models.generateContent({
             model: 'gemini-3-pro-preview',
             contents: `You are a Grounded Ledger Auditor for a debate between AI personas.
@@ -1404,7 +1490,14 @@ Return ONLY a valid JSON object with the following structure:
         // -----------------------------------------------------------------------
         // STEP 2: Synthesizer (With Injected Facts)
         // -----------------------------------------------------------------------
-        const activeAgentNames = allAvailableAgents.filter(a => activeAgentIds.includes(a.id)).map(a => a.name).join(', ');
+        const activeAgentNames = activeAgentIds.map(id => {
+          if (id.startsWith('custom-')) {
+            const ca = customAgents.find(a => a.id === id);
+            return ca ? ca.name : id;
+          }
+          const std = allAvailableAgents.find(a => a.id === id);
+          return std ? std.name : id;
+        }).join(', ');
         let prompt = `Synthesize the following discussion generated by these analytical operatives: ${activeAgentNames}\n\n${context}\n\nVERIFIED CONTEXT: You must base your final synthesis on these verified facts: ${JSON.stringify(factCheckerResults)}\n\nSynthesize these perspectives into a higher-order conclusion. You must also generate a 'radar_data' array for a 5-axis chart: ["Pragmatism", "Ethics", "Innovation", "Feasibility", "Risk"]. For each axis, assign a score (1-10) for every agent based on their arguments. You must also output an array of 2 to 3 'suggested_next_questions' that identify the most critical unresolved friction points to drive the next iteration of the debate.`;
         
         if (taskForcePurpose) {
@@ -1445,7 +1538,8 @@ Return ONLY a valid JSON object with the following structure:
                     required: ["axis", "agent_scores"]
                   }
                 },
-                heatmap_data: {
+                heatmap_summary: { type: Type.STRING, description: "A concise 1-2 sentence summary of the main alignment friction and consensus from the heatmap." },
+              heatmap_data: {
                   type: Type.ARRAY,
                   description: "A flat array of objects representing the alignment score between every pair of agents.",
                   items: {
@@ -1477,7 +1571,7 @@ Return ONLY a valid JSON object with the following structure:
                 },
                 whitepaper_markdown: { type: Type.STRING }
               },
-              required: ["radar_data", "heatmap_data", "alignment_quotes", "suggested_next_questions", "whitepaper_markdown"]
+              required: ["radar_data", "heatmap_summary", "heatmap_data", "alignment_quotes", "suggested_next_questions", "whitepaper_markdown"]
             },
           },
         }));
@@ -1722,6 +1816,7 @@ Return ONLY a valid JSON object with the following structure:
           responseSchema: {
             type: Type.OBJECT,
             properties: {
+              heatmap_summary: { type: Type.STRING, description: "A concise 1-2 sentence summary of the main alignment friction and consensus from the heatmap." },
               heatmap_data: {
                 type: Type.ARRAY,
                 description: "A flat array of objects representing the alignment score between every pair of agents.",
@@ -1767,7 +1862,7 @@ Return ONLY a valid JSON object with the following structure:
               },
               whitepaper_markdown: { type: Type.STRING }
             },
-            required: ["heatmap_data", "alignment_quotes", "fact_check", "suggested_next_questions", "whitepaper_markdown"]
+            required: ["heatmap_summary", "heatmap_data", "alignment_quotes", "fact_check", "suggested_next_questions", "whitepaper_markdown"]
           }
         },
       }));
@@ -2284,7 +2379,14 @@ Rewrite your response. You MUST maintain your exact core argument, analytical fr
       // -----------------------------------------------------------------------
       let factCheckerResults: any[] = [];
       try {
-        const activeAgentNames = allAvailableAgents.filter(a => activeAgentIds.includes(a.id)).map(a => a.name).join(', ');
+        const activeAgentNames = activeAgentIds.map(id => {
+          if (id.startsWith('custom-')) {
+            const ca = customAgents.find(a => a.id === id);
+            return ca ? ca.name : id;
+          }
+          const std = allAvailableAgents.find(a => a.id === id);
+          return std ? std.name : id;
+        }).join(', ');
         const factCheckResponse = await withRetry(() => getAI().models.generateContent({
           model: 'gemini-3-pro-preview',
           contents: `You are a Grounded Ledger Auditor for a debate between AI personas.
@@ -2336,7 +2438,14 @@ Rewrite your response. You MUST maintain your exact core argument, analytical fr
       // -----------------------------------------------------------------------
       // STEP 2: Synthesizer (With Injected Facts)
       // -----------------------------------------------------------------------
-      const activeAgentNames = allAvailableAgents.filter(a => activeAgentIds.includes(a.id)).map(a => a.name).join(', ');
+      const activeAgentNames = activeAgentIds.map(id => {
+        if (id.startsWith('custom-')) {
+          const ca = customAgents.find(a => a.id === id);
+          return ca ? ca.name : id;
+        }
+        const std = allAvailableAgents.find(a => a.id === id);
+        return std ? std.name : id;
+      }).join(', ');
       
       let strategyInstruction = "Synthesize these perspectives into a higher-order conclusion.";
       if (mode === 'conflict') {
@@ -2363,6 +2472,7 @@ Rewrite your response. You MUST maintain your exact core argument, analytical fr
           responseSchema: {
             type: Type.OBJECT,
             properties: {
+              heatmap_summary: { type: Type.STRING, description: "A concise 1-2 sentence summary of the main alignment friction and consensus from the heatmap." },
               heatmap_data: {
                 type: Type.ARRAY,
                 description: "A flat array of objects representing the alignment score between every pair of agents.",
@@ -2417,7 +2527,7 @@ Rewrite your response. You MUST maintain your exact core argument, analytical fr
               },
               whitepaper_markdown: { type: Type.STRING }
             },
-            required: ["heatmap_data", "radar_data", "alignment_quotes", "suggested_next_questions", "whitepaper_markdown"]
+            required: ["heatmap_summary", "heatmap_data", "radar_data", "alignment_quotes", "suggested_next_questions", "whitepaper_markdown"]
           },
           tools: [{ googleSearch: {} }]
         },
@@ -2540,22 +2650,18 @@ Rewrite your response. You MUST maintain your exact core argument, analytical fr
     const activeId = currentId;
     if (!activeId) return;
     setIsGeneratingImage(true);
-    console.log("Generating image with prompt:", prompt);
     try {
       // Use gemini-2.5-flash-image (nano banana) for free tier compatibility
       const result = await getAI().models.generateContent({
         model: 'gemini-2.5-flash-image',
         contents: { parts: [{ text: prompt }] },
       });
-      
-      console.log("Image generation result:", JSON.stringify(result, null, 2));
 
       // Extract image from response
       let imageUrl = '';
       if (result.candidates?.[0]?.content?.parts) {
         for (const part of result.candidates[0].content.parts) {
           if (part.inlineData) {
-            console.log("Found inlineData with mimeType:", part.inlineData.mimeType);
             imageUrl = `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
             break;
           }
@@ -2565,7 +2671,6 @@ Rewrite your response. You MUST maintain your exact core argument, analytical fr
       }
 
       if (imageUrl) {
-        console.log("Image URL generated successfully");
         updateConv(activeId, c => ({
           ...c,
           messages: c.messages.map(msg => 
