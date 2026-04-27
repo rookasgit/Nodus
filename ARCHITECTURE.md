@@ -3,11 +3,11 @@
 Nodus is built as an experimental, client-side heavy React Co-Creation Studio, powered entirely by Google's Gemini API via `@google/genai`. Unlike standard chat wrappers, Nodus treats the LLM primarily as an *engine for distinct cognitive state models*, prioritizing branching, iteration, and rigorous synthesis over general-purpose answers.
 
 ## Tech Stack Overview
-* **Framework:** React 18 / Vite / TypeScript
+* **Framework:** React 19 / Vite / TypeScript
 * **Styling:** Tailwind CSS + Framer Motion (for viewport transitions/animations).
 * **Charts/Viz:** `echarts-for-react` mapping structured LLM output to visualization components.
 * **LLM Engine:** `@google/genai` (utilizing Gemini 3.1/3.0 Pro/Flash, and Gemini 2.5 Flash for image generation).
-* **Fuzzy Matching:** `fuzzysort` for resilient document anchoring.
+* **Fuzzy Matching:** Custom Whitespace-Agnostic Fuzzy Registration (regex-based) for resilient document anchoring.
 * **Persistence:** idb-keyval (IndexedDB) for high-capacity, non-blocking session storage and local-first migration.
 
 ---
@@ -28,7 +28,7 @@ Whenever a multi-part process requires parsing, Nodus utilizes strict `responseM
 
 ### 3. The Canvas Editor & Fuzzy Anchoring
 Traditional AI "Reviewers" break entirely if the user alters the text containing the targeted margin comment. Nodus uses a custom implementation in `src/components/CanvasEditor.tsx`.
-* **Fuzzy Engine:** Utilizing raw indices checks with a fallback to `fuzzysort` / resilient regular expressions. Unlike standard Git-style diffing, Nodus's fuzzy anchoring is optimized for 'Semantic Continuity'—it ensures that the intellectual intent of the AI's critique remains visible even if the user performs heavy stylistic refactoring.
+* **Fuzzy Engine:** Utilizing raw indices checks with a fallback to resilient regular expressions. Unlike standard Git-style diffing, Nodus's fuzzy anchoring is optimized for 'Semantic Continuity'—it ensures that the intellectual intent of the AI's critique remains visible even if the user performs heavy stylistic refactoring.
 * **Whitespace & Punctuation Agnostic:** Our custom algorithmic helper strips `/\W/g` (non-word characters) from the AI's "Quote." It then searches the mutable Markdown string for blocks of text containing those exact letters in sequence, regardless of how the user formats, spaces, or punctuates the string subsequently. It prevents margin highlights from disconnecting while writing contextually around the critique.
 * **Metacognitive State:** Each margin note retains a status (`active`, `dismissed`, `integrated`), allowing the user to filter the UI locally as they push through a draft.
 
