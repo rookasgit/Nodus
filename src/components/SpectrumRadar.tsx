@@ -42,8 +42,8 @@ export const SpectrumRadar: React.FC<SpectrumRadarProps> = ({
         <ResponsiveContainer
           width="100%"
           height="100%"
-          minWidth={0}
-          minHeight={0}
+          minWidth={1}
+          minHeight={1}
           className="outline-none focus:outline-none"
         >
           <RadarChart cx="50%" cy="50%" outerRadius="65%" data={data}>

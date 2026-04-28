@@ -518,10 +518,10 @@ export function Synthesizer({
           <h2 className="text-xl font-medium text-gray-800 mb-2">
             Concept Network
           </h2>
-          <div className="w-full h-[400px]">
+          <div className="w-full" style={{ minHeight: "400px" }}>
             <ReactECharts
               option={echartsOption}
-              style={{ height: "400px", width: "100%" }}
+              style={{ height: "400px", width: "100%", minWidth: 1, minHeight: 1 }}
             />
           </div>
         </div>
