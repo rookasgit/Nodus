@@ -1051,6 +1051,7 @@ const generateArtifactHTML = (conversation: any) => {
           });
         }
       });
+      parts.push({ text: "\n\n[CRITICAL ANTI-HALLUCINATION DIRECTIVE]: The user has attached files. You MUST NOT hallucinate, infer, or guess any metadata (such as authors, publication dates, publishers, or URLs/links/citations) that are not explicitly and unmistakably written in the provided document text itself. If a piece of metadata is not clearly visible in the extracted text, you MUST state 'Unknown' or omit it entirely. Never generate fake URLs or guess publication dates." });
     }
     parts.push({ text: prompt });
     return [{ role: 'user', parts }];
@@ -1058,7 +1059,7 @@ const generateArtifactHTML = (conversation: any) => {
 
   const handleSend = async (text: string, attachments: Attachment[] = [], overrideId?: string, systemInjection?: string) => {
     const targetId = overrideId || currentId;
-    if ((!text.trim() && attachments.length === 0) || isProcessing || !targetId) return;
+    if ((!text.trim() && attachments.length === 0) || isProcessing || !targetId || messages.some(m => m.isTyping)) return;
 
     // Explicitly derive current agents based on mode
     const currentAgents = appMode === 'LAB' ? LAB_ROLES : ROLES;
@@ -1427,15 +1428,14 @@ Return ONLY a valid JSON object with the following structure:
 
 
   const handleRetry = async (messageId: string) => {
-    if (!currentId || isProcessing) return;
+    if (!currentId) return;
     
     const targetMsg = messages.find(m => m.id === messageId);
-    if (!targetMsg) return;
+    if (!targetMsg || targetMsg.isTyping) return;
 
     // Determine if it's a synthesizer message or a regular agent message
     if (targetMsg.roleId === 'synthesizer') {
       // Retry synthesis
-      setIsProcessing(true);
       
       // Reset message state
       updateConv(currentId, c => ({
@@ -1662,11 +1662,9 @@ Return ONLY a valid JSON object with the following structure:
           )
         }));
       }
-      setIsProcessing(false);
 
     } else {
       // Retry regular agent
-      setIsProcessing(true);
       
       // Reset message state
       updateConv(currentId, c => ({
@@ -1795,8 +1793,26 @@ Return ONLY a valid JSON object with the following structure:
           )
         }));
       }
-      setIsProcessing(false);
     }
+  };
+
+  const handleRegenerateFailed = () => {
+    if (!currentId) return;
+    
+    // Find the last group of messages
+    let groupStart = messages.length - 1;
+    while (groupStart >= 0 && messages[groupStart].roleId !== 'user') {
+      groupStart--;
+    }
+    const agentMsgs = messages.slice(groupStart + 1).filter(m => m.roleId !== 'synthesizer');
+    
+    agentMsgs.forEach(msg => {
+      const safeText = msg.text || '';
+      const isError = safeText.startsWith('[Connection lost]') || safeText.startsWith('[Synthesis failed]') || safeText.includes('[Analysis Failed');
+      if (isError && !msg.isTyping) {
+        handleRetry(msg.id);
+      }
+    });
   };
 
   const handleRegenerateWithFactCheck = async (messageId: string) => {
@@ -3612,6 +3628,18 @@ Review the following document. Do not rewrite it entirely. Return a JSON array o
                     </div>
                   )}
 
+                  {group.agentMsgs.some(m => !m.isTyping && (m.text?.startsWith('[Connection lost]') || m.text?.startsWith('[Synthesis failed]') || m.text?.includes('[Analysis Failed'))) && i === groupedMessages.length - 1 && (
+                    <div className="flex justify-center mt-4 mb-4">
+                      <button
+                        onClick={handleRegenerateFailed}
+                        className="px-6 py-3 bg-red-950/30 border border-red-500/50 hover:bg-red-900/50 text-red-400 font-mono text-xs uppercase tracking-widest transition-all flex items-center gap-2 rounded shadow-lg"
+                      >
+                        <RefreshCw size={14} />
+                        Regenerate All Failed
+                      </button>
+                    </div>
+                  )}
+
                   {/* Synthesizer */}
                   {group.synthMsg && (
                     <div className="w-full mt-8">
@@ -3797,7 +3825,7 @@ Review the following document. Do not rewrite it entirely. Return a JSON array o
 <ChatInput 
   onSend={handleSend} 
   onSuggest={handleSuggestExperts}
-  disabled={isProcessing} 
+  disabled={isProcessing || messages.some(m => m.isTyping)} 
   isSuggesting={isSuggesting}
   // Visuals: If in LAB, force it to look enabled (green). Otherwise, use user preference.
   isNewsModeEnabled={appMode === 'LAB' || isNewsModeEnabled}
