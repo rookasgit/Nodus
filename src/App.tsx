@@ -1036,6 +1036,26 @@ const generateArtifactHTML = (conversation: any) => {
     setIsSuggesting(false);
   };
 
+  const buildUserContentsWithAttachments = (prompt: string, contextualMessages: Message[], fallbackAttachments?: Attachment[]) => {
+    let attachments = fallbackAttachments || [];
+    if (!attachments.length) {
+      const userMsg = [...contextualMessages].reverse().find(m => m.roleId === 'user');
+      if (userMsg && userMsg.attachments) attachments = userMsg.attachments;
+    }
+    const parts: any[] = [];
+    if (attachments.length > 0) {
+      attachments.forEach(att => {
+        if (att.data && att.mimeType) {
+          parts.push({
+            inlineData: { mimeType: att.mimeType, data: att.data }
+          });
+        }
+      });
+    }
+    parts.push({ text: prompt });
+    return [{ role: 'user', parts }];
+  };
+
   const handleSend = async (text: string, attachments: Attachment[] = [], overrideId?: string, systemInjection?: string) => {
     const targetId = overrideId || currentId;
     if ((!text.trim() && attachments.length === 0) || isProcessing || !targetId) return;
@@ -1214,78 +1234,92 @@ Return ONLY a valid JSON object with the following structure:
     // Use a high-context model for the master call
     const modelName = 'gemini-3-pro-preview'; 
     
-    try {
-      const responseStream = await withRetry(() => getAI().models.generateContentStream({
-        model: modelName,
-        contents: { parts },
-        config
-      }));
+    let success = false;
+    let attempts = 0;
 
-      let fullText = '';
-      let inputTokens = 0;
-      let outputTokens = 0;
-
-      for await (const chunk of responseStream) {
-        if (chunk.text) {
-          fullText += chunk.text;
-        }
-        if (chunk.usageMetadata) {
-          inputTokens = chunk.usageMetadata.promptTokenCount || 0;
-          outputTokens = chunk.usageMetadata.candidatesTokenCount || 0;
-        }
-      }
-
-      setSessionTokens(prev => ({
-        ...prev,
-        agentInput: prev.agentInput + inputTokens,
-        agentOutput: prev.agentOutput + outputTokens
-      }));
-
-      const parsed = resilientJSONParse(fullText);
-      
-      if (parsed && parsed.responses && Array.isArray(parsed.responses)) {
-        // Fan-out updates
-        updateConv(targetId, c => ({
-          ...c,
-          messages: c.messages.map(msg => {
-            const response = parsed.responses.find((r: any) => r.agentId === msg.roleId);
-            if (response && agentMessages.some(am => am.id === msg.id)) {
-              return {
-                ...msg,
-                text: response.provocation || response.full_analysis,
-                fullAnalysis: response.full_analysis,
-                isTyping: false
-              };
-            }
-            return msg;
-          })
+    while (!success && attempts < 3) {
+      attempts++;
+      try {
+        const responseStream = await withRetry(() => getAI().models.generateContentStream({
+          model: modelName,
+          contents: { parts },
+          config
         }));
-      } else {
-        console.error("Failed to parse master response:", fullText);
-        // Fallback: Mark all as failed
-        updateConv(targetId, c => ({
-          ...c,
-          messages: c.messages.map(msg => 
-            agentMessages.some(am => am.id === msg.id) 
-              ? { ...msg, text: '[Analysis Failed - Invalid JSON]', isTyping: false } 
-              : msg
-          )
-        }));
-      }
 
-    } catch (error: any) {
-      console.error("Master call failed:", error);
-      if (error?.message?.includes('429') || error?.message?.includes('RESOURCE_EXHAUSTED')) {
-        setShowQuotaError(true);
+        let fullText = '';
+        let inputTokens = 0;
+        let outputTokens = 0;
+
+        for await (const chunk of responseStream) {
+          if (chunk.text) {
+            fullText += chunk.text;
+          }
+          if (chunk.usageMetadata) {
+            inputTokens = chunk.usageMetadata.promptTokenCount || 0;
+            outputTokens = chunk.usageMetadata.candidatesTokenCount || 0;
+          }
+        }
+
+        setSessionTokens(prev => ({
+          ...prev,
+          agentInput: prev.agentInput + inputTokens,
+          agentOutput: prev.agentOutput + outputTokens
+        }));
+
+        const parsed = resilientJSONParse(fullText);
+        
+        if (parsed && parsed.responses && Array.isArray(parsed.responses)) {
+          success = true;
+          // Fan-out updates
+          updateConv(targetId, c => ({
+            ...c,
+            messages: c.messages.map(msg => {
+              const response = parsed.responses.find((r: any) => r.agentId === msg.roleId);
+              if (response && agentMessages.some(am => am.id === msg.id)) {
+                return {
+                  ...msg,
+                  text: response.provocation || response.full_analysis,
+                  fullAnalysis: response.full_analysis,
+                  isTyping: false
+                };
+              }
+              return msg;
+            })
+          }));
+          break;
+        } else {
+          console.error(`Failed to parse master response (Attempt ${attempts}):`, fullText);
+          if (attempts >= 3) {
+            // Fallback: Mark all as failed
+            updateConv(targetId, c => ({
+              ...c,
+              messages: c.messages.map(msg => 
+                agentMessages.some(am => am.id === msg.id) 
+                  ? { ...msg, text: '[Analysis Failed - Invalid JSON]', isTyping: false } 
+                  : msg
+              )
+            }));
+          }
+        }
+
+      } catch (error: any) {
+        console.error(`Master call failed (Attempt ${attempts}):`, error);
+        
+        if (attempts >= 3 || error?.message?.includes('429') || error?.message?.includes('RESOURCE_EXHAUSTED')) {
+          if (error?.message?.includes('429') || error?.message?.includes('RESOURCE_EXHAUSTED')) {
+            setShowQuotaError(true);
+          }
+          updateConv(targetId, c => ({
+            ...c,
+            messages: c.messages.map(msg => 
+              agentMessages.some(am => am.id === msg.id) 
+                ? { ...msg, text: '[Connection lost]', isTyping: false } 
+                : msg
+            )
+          }));
+          break;
+        }
       }
-      updateConv(targetId, c => ({
-        ...c,
-        messages: c.messages.map(msg => 
-          agentMessages.some(am => am.id === msg.id) 
-            ? { ...msg, text: '[Connection lost]', isTyping: false } 
-            : msg
-        )
-      }));
     }
 
     setIsProcessing(false);
@@ -1441,7 +1475,7 @@ Return ONLY a valid JSON object with the following structure:
           }).join(', ');
           const factCheckResponse = await withRetry(() => getAI().models.generateContent({
             model: 'gemini-3-pro-preview',
-            contents: `You are a Grounded Ledger Auditor for a debate between AI personas.
+            contents: buildUserContentsWithAttachments(`You are a Grounded Ledger Auditor for a debate between AI personas.
             The following analytical operatives generated this data: ${activeAgentNames}.
             
             Context (Previous Arguments):
@@ -1452,7 +1486,7 @@ Return ONLY a valid JSON object with the following structure:
             IMPORTANT FORMATTING RULE: You MUST output a valid JSON array of objects inside a \`\`\`json markdown block. Do not concatenate words together. Ensure proper spacing between words.
 
             Use this schema:
-            [\n  {\n    "agent": "Name",\n    "claim": "The data point...",\n    "verdict": "VERIFIED" | "DEBUNKED" | "NEEDS CONTEXT",\n    "context": "Actual real-world data from search"\n  }\n]`,
+            [\n  {\n    "agent": "Name",\n    "claim": "The data point...",\n    "verdict": "VERIFIED" | "DEBUNKED" | "NEEDS CONTEXT",\n    "context": "Actual real-world data from search"\n  }\n]`, relevantMessages),
             config: {
               tools: [{ googleSearch: {} }],
               ...getAgentGenerationConfig(0.2, true)
@@ -1508,7 +1542,7 @@ Return ONLY a valid JSON object with the following structure:
         
         const responseStream = await withRetry(() => getAI().models.generateContentStream({
           model: activeSynth.model || 'gemini-3.1-pro-preview',
-          contents: prompt,
+          contents: buildUserContentsWithAttachments(prompt, relevantMessages),
           config: {
             systemInstruction: activeSynth.systemInstruction,
             ...getAgentGenerationConfig(0.5),
@@ -1699,7 +1733,7 @@ Return ONLY a valid JSON object with the following structure:
 
         const responseStream = await withRetry(() => getAI().models.generateContentStream({
           model: agent.model || 'gemini-3-pro-preview',
-          contents: prompt,
+          contents: buildUserContentsWithAttachments(prompt, previousMessages, lastUserMsg.attachments),
           config,
         }));
 
@@ -1808,7 +1842,7 @@ Return ONLY a valid JSON object with the following structure:
       
       const responseStream = await withRetry(() => getAI().models.generateContentStream({
         model: activeSynth.model || 'gemini-3.1-pro-preview',
-        contents: prompt,
+        contents: buildUserContentsWithAttachments(prompt, relevantMessages),
         config: {
           systemInstruction: activeSynth.systemInstruction,
           ...getAgentGenerationConfig(0.5),
@@ -1891,9 +1925,7 @@ Return ONLY a valid JSON object with the following structure:
 
       // Re-run Fact Check
       try {
-        const factCheckResponse = await withRetry(() => getAI().models.generateContent({
-          model: 'gemini-3-pro-preview',
-          contents: `You are a Grounded Ledger Auditor for a debate between AI personas (e.g., Baudrillard, Zizek, etc.).
+        const factCheckPrompt = `You are a Grounded Ledger Auditor for a debate between AI personas (e.g., Baudrillard, Zizek, etc.).
           Your goal is to distinguish between **Objective Factual Errors** and **Persona Interpretations**.
 
           Text to check:
@@ -1913,7 +1945,15 @@ Return ONLY a valid JSON object with the following structure:
           [List of claims that are theoretical interpretations, not objective facts]
 
           If the text is purely factual and accurate (or correctly attributes interpretations), return exactly:
-          STATUS: VERIFIED`,
+          STATUS: VERIFIED`;
+
+        const factCheckResponse = await withRetry(() => getAI().models.generateContent({
+          model: 'gemini-3-pro-preview',
+          contents: buildUserContentsWithAttachments(factCheckPrompt, relevantMessages),
+          config: {
+            tools: [{ googleSearch: {} }],
+            ...getAgentGenerationConfig(0.2, true)
+          }
         }));
 
         const factCheckText = factCheckResponse.text?.trim() || '';
@@ -2389,7 +2429,7 @@ Rewrite your response. You MUST maintain your exact core argument, analytical fr
         }).join(', ');
         const factCheckResponse = await withRetry(() => getAI().models.generateContent({
           model: 'gemini-3-pro-preview',
-          contents: `You are a Grounded Ledger Auditor for a debate between AI personas.
+          contents: buildUserContentsWithAttachments(`You are a Grounded Ledger Auditor for a debate between AI personas.
           The following analytical operatives generated this data: ${activeAgentNames}.
 
           Context (Previous Arguments):
@@ -2400,7 +2440,7 @@ Rewrite your response. You MUST maintain your exact core argument, analytical fr
           IMPORTANT FORMATTING RULE: You MUST output a valid JSON array of objects inside a \`\`\`json markdown block. Do not concatenate words together. Ensure proper spacing between words.
 
           Use this schema:
-          [\n  {\n    "agent": "Name",\n    "claim": "The data point...",\n    "verdict": "VERIFIED" | "DEBUNKED" | "NEEDS CONTEXT",\n    "context": "Actual real-world data from search"\n  }\n]`,
+          [\n  {\n    "agent": "Name",\n    "claim": "The data point...",\n    "verdict": "VERIFIED" | "DEBUNKED" | "NEEDS CONTEXT",\n    "context": "Actual real-world data from search"\n  }\n]`, messages.slice(groupStart)),
           config: {
             tools: [{ googleSearch: {} }],
             ...getAgentGenerationConfig(0.2, true)
@@ -2464,7 +2504,7 @@ Rewrite your response. You MUST maintain your exact core argument, analytical fr
 
       const modelName = synthAgent.model || 'gemini-3.1-pro-preview';
       const payload = {
-        contents: prompt,
+        contents: buildUserContentsWithAttachments(prompt, messages.slice(groupStart)),
         config: {
           systemInstruction: synthAgent.systemInstruction,
           ...getAgentGenerationConfig(0.7),
