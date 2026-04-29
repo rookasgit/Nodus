@@ -218,7 +218,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ id, roleId, text, isTy
   const [isFlashing, setIsFlashing] = useState(false);
   
   const safeText = text || '';
-  const isError = safeText.startsWith('[Connection lost]') || safeText.startsWith('[Synthesis failed]');
+  const isError = safeText.startsWith('[Connection lost]') || safeText.startsWith('[Synthesis failed]') || safeText.includes('[Analysis Failed');
   
   // Detect raw JSON artifacts during streaming to mask them
   const isRawJson = isTyping && roleId !== 'user' && roleId !== 'synthesizer' && (
