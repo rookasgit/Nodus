@@ -29,7 +29,7 @@ export const BranchModal: React.FC<BranchModalProps> = ({ isOpen, onClose, onBra
       Output only the scenario description (1-2 sentences). Make it provocative, unexpected, and challenging.`;
 
       const responseStream = await withRetry(() => getAI().models.generateContentStream({
-        model: 'gemini-3-pro-preview',
+        model: 'gemini-3.1-pro-preview',
         contents: prompt,
       }));
 

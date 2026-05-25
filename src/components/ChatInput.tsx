@@ -32,6 +32,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onSend, onSuggest, disable
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // ... (keep existing useEffect)
 
@@ -45,12 +46,22 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onSend, onSuggest, disable
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 200)}px`;
+    }
+  }, [text]);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if ((text.trim() || attachments.length > 0) && !disabled) {
       onSend(text.trim(), attachments);
       setText('');
       setAttachments([]);
+      if (textareaRef.current) {
+        textareaRef.current.style.height = 'auto';
+      }
     }
   };
 
@@ -182,13 +193,21 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onSend, onSuggest, disable
           accept=".pdf,.txt,.md,.csv,.json"
         />
 
-        <input
-          type="text"
+        <textarea
+          ref={textareaRef}
           value={text}
           onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault();
+              handleSubmit(e as any);
+            }
+          }}
           disabled={disabled}
           placeholder={disabled ? "The Council is speaking..." : "Submit a topic, link, or attach a document..."}
-          className="flex-1 bg-zinc-900 text-[#F4F4F0] font-mono text-sm p-4 rounded-none border border-zinc-700 focus:outline-none focus:border-[#F4F4F0] transition-colors disabled:opacity-50 min-w-0"
+          className="flex-1 bg-zinc-900 text-[#F4F4F0] font-mono text-sm p-4 rounded-none border border-zinc-700 focus:outline-none focus:border-[#F4F4F0] transition-colors disabled:opacity-50 min-w-0 resize-none overflow-y-auto"
+          rows={1}
+          style={{ minHeight: '54px' }}
         />
 
         <button

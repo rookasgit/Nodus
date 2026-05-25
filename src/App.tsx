@@ -14,7 +14,7 @@ import { EmptyState } from './components/EmptyState';
 import { ExportArtifactBlock } from './components/ExportArtifactBlock';
 import { CanvasEditor, MarginNote } from './components/CanvasEditor';
 import { GoogleGenAI, Type } from '@google/genai';
-import { getAI, withRetry, calculateQueryCost, fetchLiveContext } from './lib/gemini';
+import { getAI, withRetry, calculateQueryCost, fetchLiveContext, withStreamTimeout } from './lib/gemini';
 import { extractPartialField, parseAgentResponse, parseSynthesizerResponse } from './lib/streamExtractor';
 import { resilientJSONParse } from './utils/jsonParser';
 import { SessionManager, SessionRetrospective } from './lib/sessionManager';
@@ -252,13 +252,13 @@ export default function App() {
            const migratedRoleSettings = { ...c.roleSettings };
            if (migratedRoleSettings) {
              Object.keys(migratedRoleSettings).forEach(key => {
-               if (migratedRoleSettings[key].model === 'gemini-2.5-flash') {
+               if (migratedRoleSettings[key].model === 'gemini-2.5-flash' || migratedRoleSettings[key].model === 'gemini-3.1-flash-lite-preview') {
                  migratedRoleSettings[key].model = 'gemini-3-flash-preview';
                }
              });
            }
            const migratedCustomAgents = (c.customAgents || []).map((ca: any) => {
-             if (ca.model === 'gemini-2.5-flash') {
+             if (ca.model === 'gemini-2.5-flash' || ca.model === 'gemini-3.1-flash-lite-preview') {
                return { ...ca, model: 'gemini-3-flash-preview' };
              }
              return ca;
@@ -285,9 +285,9 @@ export default function App() {
     if (savedSettings) {
       try {
         const parsedSettings = JSON.parse(savedSettings);
-        // Migrate old gemini-2.5-flash to gemini-3-flash-preview
+        // Migrate old gemini-2.5-flash or lite-preview to gemini-3-flash-preview
         Object.keys(parsedSettings).forEach(key => {
-          if (parsedSettings[key].model === 'gemini-2.5-flash') {
+          if (parsedSettings[key].model === 'gemini-2.5-flash' || parsedSettings[key].model === 'gemini-3.1-flash-lite-preview') {
             parsedSettings[key].model = 'gemini-3-flash-preview';
           }
         });
@@ -541,101 +541,354 @@ const generateArtifactHTML = (conversation: any) => {
     const title = (conversation.title || 'Nodus Report').toUpperCase();
     const date = new Date().toLocaleDateString();
 
-    // Capture Conversation
-    let conversationHtml = '';
+    // Markdown-to-HTML Robust Parser
+    const parseMdToHtml = (mdText: string): string => {
+        if (!mdText) return '';
+        let text = mdText;
+        
+        // Strip out enclosing JSON codes if agent outputs it raw
+        if (text.startsWith('```json')) {
+            text = text.trim();
+            if (text.startsWith('```json')) {
+                text = text.substring(7);
+            }
+            if (text.endsWith('```')) {
+                text = text.substring(0, text.length - 3);
+            }
+        }
+
+        // Escape generic XML brackets to prevent broken tag rendering
+        text = text
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+            
+        // Use pre-processed code block formatting
+        text = text.replace(/```([\s\S]*?)```/g, '<pre class="code-block"><code>$1</code></pre>');
+
+        const lines = text.split('\n');
+        let inList = false;
+        let inCodeBlock = false;
+        const processedLines: string[] = [];
+
+        for (let i = 0; i < lines.length; i++) {
+            let line = lines[i];
+            let trimmed = line.trim();
+
+            if (trimmed.startsWith('<pre') || trimmed.includes('<pre')) {
+                inCodeBlock = true;
+            }
+
+            if (inCodeBlock) {
+                processedLines.push(line);
+                if (trimmed.includes('</pre>') || trimmed.startsWith('</pre')) {
+                    inCodeBlock = false;
+                }
+                continue;
+            }
+
+            // Bold & Italic & Inline Code replacements
+            line = line.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+            line = line.replace(/\*(.*?)\*/g, '<em>$1</em>');
+            line = line.replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>');
+            trimmed = line.trim();
+
+            if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
+                const content = trimmed.substring(2);
+                if (!inList) {
+                    processedLines.push('<ul class="report-list">');
+                    inList = true;
+                }
+                processedLines.push(`<li>${content}</li>`);
+            } else {
+                if (inList) {
+                    processedLines.push('</ul>');
+                    inList = false;
+                }
+
+                // Check for block headers
+                if (trimmed.startsWith('### ')) {
+                    processedLines.push(`<h3>${trimmed.substring(4)}</h3>`);
+                } else if (trimmed.startsWith('## ')) {
+                    processedLines.push(`<h2>${trimmed.substring(3)}</h2>`);
+                } else if (trimmed.startsWith('# ')) {
+                    processedLines.push(`<h1>${trimmed.substring(2)}</h1>`);
+                } else if (trimmed.startsWith('&gt; ')) {
+                    processedLines.push(`<blockquote>${trimmed.substring(5)}</blockquote>`);
+                } else if (trimmed === '') {
+                    processedLines.push('<div class="md-spacer"></div>');
+                } else {
+                    // Check if line looks like it contains existing HTML layout blocks or wrappers
+                    if (trimmed.startsWith('<h1') || trimmed.startsWith('<h2') || trimmed.startsWith('<h3') || trimmed.startsWith('<table') || trimmed.startsWith('thead') || trimmed.startsWith('tbody') || trimmed.startsWith('<tr') || trimmed.startsWith('<th') || trimmed.startsWith('<td') || trimmed.includes('</table>') || trimmed.includes('<div') || trimmed.includes('</div>') || trimmed.includes('<blockquote>') || trimmed.includes('<ul>') || trimmed.includes('</ul>') || trimmed.includes('<li>')) {
+                        processedLines.push(line);
+                    } else {
+                        processedLines.push(`<p class="md-paragraph">${line}</p>`);
+                    }
+                }
+            }
+        }
+        if (inList) {
+            processedLines.push('</ul>');
+        }
+
+        return processedLines.join('\n');
+    };
+
+    // Find the original starting question
+    const originalUserMsg = conversation.messages?.find((m: any) => m.roleId === 'user');
+    const firstQuestion = originalUserMsg ? originalUserMsg.text : '';
+    let heroQuestionHtml = '';
+    if (firstQuestion) {
+      heroQuestionHtml = `
+        <div class="session-prompt-hero">
+          <div class="hero-label">Central Operative Query</div>
+          <div class="hero-text">${parseMdToHtml(firstQuestion)}</div>
+        </div>
+      `;
+    }
+
+    // Group Messages sequentially by debate turn focus (User -> Agents panel -> Synthesizer response)
+    const groups: { userMsg: any, agentMsgs: any[], synthMsg: any | null }[] = [];
+    let currentGroup: { userMsg: any, agentMsgs: any[], synthMsg: any | null } | null = null;
+    
     if (conversation.messages && conversation.messages.length > 0) {
-      conversationHtml = '<div class="section-title">Strategic Logs & Transcript</div><div class="conversation-history">';
       conversation.messages.forEach((msg: any) => {
-        const isUser = msg.roleId === 'user';
-        const isSynthesizer = msg.roleId === 'synthesizer';
-        const roleName = (msg.roleId || 'AGENT').toUpperCase();
-        
-        let contentHtml = msg.text ? msg.text.replace(/\n/g, '<br>') : '';
-        
-        if (isSynthesizer && msg.synthesizerData) {
-           const synthData = msg.synthesizerData;
-           contentHtml = '';
-           if (synthData.whitepaper || synthData.whitepaper_markdown) {
-             let text = synthData.whitepaper || synthData.whitepaper_markdown;
-             text = text.replace(/### (.*?)(?=\n|$)/g, '<br><strong>$1</strong><br>');
-             text = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-             text = text.replace(/\n/g, '<br>');
-             contentHtml += `<h4>Executive Synthesis</h4><p>${text}</p>`;
-           }
-           if (synthData.suggested_next_questions?.length > 0) {
-             contentHtml += `<h4>Strategic Vectors</h4><ul>`;
-             synthData.suggested_next_questions.forEach((q: string) => {
-               contentHtml += `<li>${q}</li>`;
-             });
-             contentHtml += `</ul>`;
-           }
-           if (synthData.fact_check?.length > 0) {
-             contentHtml += `<h4>Fact Verification Audit</h4><table><tr><th>Agent</th><th>Verdict</th><th>Claim & Context</th></tr>`;
-             synthData.fact_check.forEach((f: any) => {
-               contentHtml += `<tr><td>${f.agent}</td><td><strong>${f.verdict}</strong></td><td><b>"${f.claim}"</b><br/><span class="context-text">>> ${f.context}</span></td></tr>`;
-             });
-             contentHtml += `</table>`;
-           }
-           if (synthData.heatmap_summary) {
-             contentHtml += `<h4>Friction Topology</h4><p>${synthData.heatmap_summary}</p>`;
-           }
-           if (synthData.alignment_quotes?.length > 0) {
-             contentHtml += `<h4>Alignment Log</h4>`;
-             synthData.alignment_quotes.forEach((aq: any) => {
-               contentHtml += `<blockquote><b>[${aq.type.toUpperCase()}]</b> (${aq.agents.join(', ')}):<br/>"${aq.quote}"</blockquote>`;
-             });
-           }
+        if (msg.roleId === 'user') {
+          if (currentGroup) groups.push(currentGroup);
+          currentGroup = { userMsg: msg, agentMsgs: [], synthMsg: null };
+        } else if (msg.roleId === 'synthesizer') {
+          if (!currentGroup) currentGroup = { userMsg: { text: 'Prompt Focus', roleId: 'user' }, agentMsgs: [], synthMsg: null };
+          currentGroup.synthMsg = msg;
+        } else {
+          if (!currentGroup) currentGroup = { userMsg: { text: 'Session Startup', roleId: 'user' }, agentMsgs: [], synthMsg: null };
+          currentGroup.agentMsgs.push(msg);
+        }
+      });
+      if (currentGroup) groups.push(currentGroup);
+    }
+
+    // Build the Interagency Debates & Turn Transcript in HTML
+    let conversationHtml = '';
+    if (groups.length > 0) {
+      conversationHtml = '<div class="section-title">Strategic Logs & Transcript</div><div class="conversation-history">';
+      groups.forEach((group, index) => {
+        let userQueryHtml = '';
+        if (group.userMsg) {
+           userQueryHtml = `
+              <div class="turn-header font-sans">CYCLE ${index + 1} // OPERATOR GROUNDING FOCUS</div>
+              <div class="user-query-card">
+                  <div class="user-query-meta">Operator Focus</div>
+                  <div class="user-query">${parseMdToHtml(group.userMsg.text)}</div>
+              </div>
+           `;
         }
         
-        // Assign specific CSS classes for styling
-        let blockClass = "message-block";
-        if (isUser) blockClass += " user-msg";
-        if (isSynthesizer) blockClass += " synthesizer-msg";
-
-        let displayName = roleName;
-        if (!isUser && !isSynthesizer) {
-           if (msg.roleId.startsWith('custom-') && conversation.customAgents) {
-              const ca = conversation.customAgents.find((a: any) => a.id === msg.roleId);
-              if (ca) displayName = ca.name.toUpperCase();
+        let agentsGridHtml = '';
+        if (group.agentMsgs && group.agentMsgs.length > 0) {
+           agentsGridHtml += '<div class="turn-header">AGENT PANELS // DIVERGENT SESSIONS</div><div class="agents-grid">';
+           group.agentMsgs.forEach((msg: any) => {
+              const roleName = (msg.roleId || 'AGENT').toUpperCase();
+              let displayName = roleName;
+              let agentColor = '#FFD100';
+              if (msg.roleId.startsWith('custom-') && conversation.customAgents) {
+                 const ca = conversation.customAgents.find((a: any) => a.id === msg.roleId);
+                 if (ca) {
+                   displayName = ca.name.toUpperCase();
+                   agentColor = ca.color || '#FFD100';
+                 }
+              } else {
+                 const agent = ROLES.find(r => r.id === msg.roleId) || LAB_ROLES.find(r => r.id === msg.roleId);
+                 if (agent) {
+                   displayName = agent.name.toUpperCase();
+                   agentColor = agent.color || '#FFD100';
+                 }
+              }
+              
+              // Parse potential JSON responses from agents
+              let provocation = msg.text || '';
+              let rationale = msg.fullAnalysis || '';
+              const cleaned = (msg.text || '').trim();
+              if (cleaned.startsWith('```json') || cleaned.startsWith('{')) {
+                 try {
+                   let rawJson = cleaned;
+                   if (rawJson.startsWith('```json')) {
+                      rawJson = rawJson.substring(7);
+                   }
+                   if (rawJson.endsWith('```')) {
+                      rawJson = rawJson.substring(0, rawJson.length - 3);
+                   }
+                   const parsed = JSON.parse(rawJson.trim());
+                   provocation = parsed.provocation || '';
+                   rationale = parsed.full_analysis || parsed.analysis || parsed.rationale || '';
+                 } catch (e) {
+                   // Fallback
+                 }
+              }
+              
+              agentsGridHtml += `
+                <div class="agent-brief-card" style="--agent-color: ${agentColor}">
+                  <div class="agent-card-header">
+                    <div class="agent-card-name">${displayName}</div>
+                    <div class="agent-card-timestamp">${msg.timestamp || ''}</div>
+                  </div>
+                  <div class="agent-provocation-text">
+                    ${parseMdToHtml(provocation)}
+                  </div>
+                  ${rationale ? `
+                  <div class="agent-rationale-box">
+                    <div class="agent-rationale-title">Analysis Brief / Rationale</div>
+                    <div class="agent-rationale-content">
+                      ${parseMdToHtml(rationale)}
+                    </div>
+                  </div>
+                  ` : ''}
+                </div>
+              `;
+           });
+           agentsGridHtml += '</div>';
+        }
+        
+        let synthesizerHtml = '';
+        if (group.synthMsg) {
+           const msg = group.synthMsg;
+           let contentHtml = '';
+           
+           if (msg.synthesizerData) {
+              const synthData = msg.synthesizerData;
+              
+              if (synthData.whitepaper || synthData.whitepaper_markdown) {
+                const text = synthData.whitepaper || synthData.whitepaper_markdown;
+                contentHtml += `<h4>Executive Synthesis</h4><div class="synth-meta-text">${parseMdToHtml(text)}</div>`;
+              }
+              if (synthData.suggested_next_questions?.length > 0) {
+                contentHtml += `<h4>Suggested Next Questions // Strategic Vectors</h4><ul class="report-list">`;
+                synthData.suggested_next_questions.forEach((q: string) => {
+                  contentHtml += `<li>${parseMdToHtml(q)}</li>`;
+                });
+                contentHtml += `</ul>`;
+              }
+              if (synthData.fact_check?.length > 0) {
+                contentHtml += `<h4>Fact Verification Audit</h4><table><thead><tr><th>Agent</th><th>Verdict</th><th>Claim & Source Context</th></tr></thead><tbody>`;
+                synthData.fact_check.forEach((f: any) => {
+                  contentHtml += `<tr><td><strong>${parseMdToHtml(f.agent)}</strong></td><td><strong class="verdict-tag">${parseMdToHtml(f.verdict)}</strong></td><td><b>"${parseMdToHtml(f.claim)}"</b><br/><span class="context-text">>> ${parseMdToHtml(f.context)}</span></td></tr>`;
+                });
+                contentHtml += `</tbody></table>`;
+              }
+              if (synthData.radar_data?.length > 0) {
+                contentHtml += `<h4>Spectrum Analysis Scorecard</h4><table><thead><tr><th>Axiological Axis</th><th>Intellectual Ratings</th></tr></thead><tbody>`;
+                synthData.radar_data.forEach((r: any) => {
+                  const scoresList: string[] = [];
+                  if (Array.isArray(r.agent_scores)) {
+                    r.agent_scores.forEach((as: any) => {
+                      scoresList.push(`<span><b>${as.agent}:</b> ${as.score}/10</span>`);
+                    });
+                  } else {
+                    Object.keys(r).forEach((key) => {
+                      if (key !== 'axis' && key !== 'agent_scores' && key !== 'axisColor') {
+                        scoresList.push(`<span><b>${key}:</b> ${r[key]}/10</span>`);
+                      }
+                    });
+                  }
+                  const scoresStr = scoresList.join(' | ');
+                  contentHtml += `<tr><td><strong>${r.axis}</strong></td><td>${scoresStr}</td></tr>`;
+                });
+                contentHtml += `</tbody></table>`;
+              }
+              if (synthData.heatmap_summary) {
+                contentHtml += `<h4>Friction Topology Summaries</h4><div class="synth-meta-text">${parseMdToHtml(synthData.heatmap_summary)}</div>`;
+              }
+              if (synthData.alignment_quotes?.length > 0) {
+                contentHtml += `<h4>Alignment Log</h4>`;
+                synthData.alignment_quotes.forEach((aq: any) => {
+                  contentHtml += `<blockquote><b>[${aq.type.toUpperCase()}]</b> (${aq.agents.join(', ')}):<br/>"${parseMdToHtml(aq.quote)}"</blockquote>`;
+                });
+              }
            } else {
-              const agent = ROLES.find(r => r.id === msg.roleId) || LAB_ROLES.find(r => r.id === msg.roleId);
-              if (agent) displayName = agent.name.toUpperCase();
+              contentHtml = `<div class="synth-meta-text">${parseMdToHtml(msg.text)}</div>`;
            }
+           
+           synthesizerHtml = `
+              <div class="turn-header font-sans">COHESIBLE SYNTHESIS // META-REPORT</div>
+              <div class="synth-meta-card">
+                 <div style="font-family: var(--font-mono); font-size: 11px; color: #FFD100; letter-spacing: 0.1em; margin-bottom: 15px; font-weight: bold; text-transform: uppercase;">The Synthesizer // Meta-Analytical Brief</div>
+                 ${contentHtml}
+              </div>
+           `;
         }
-
+        
         conversationHtml += `
-          <div class="${blockClass}">
-            <div class="message-header">${displayName} <span class="timestamp">${msg.timestamp || ''}</span></div>
-            <div class="message-content">${contentHtml}</div>
+          <div class="strategic-turn-container">
+            ${userQueryHtml}
+            ${agentsGridHtml}
+            ${synthesizerHtml}
           </div>
         `;
       });
       conversationHtml += '</div>';
     }
 
+    // Build the Document Canvas Component
     let canvasDataHtml = '';
     if (conversation.canvasText) {
         canvasDataHtml = `
-            <div class="section-title">Active Document Canvas</div>
-            <div class="canvas-fidelity-wrapper">
-                <pre>${conversation.canvasText}</pre>
+            <div class="canvas-outer-frame">
+                <div class="canvas-header">
+                    <div class="canvas-header-title">
+                        <span class="pulse-indicator"></span> ACTIVE STRATEGIC CANVAS
+                    </div>
+                    <div class="canvas-header-meta">
+                        Lines: ${conversation.canvasText.split('\n').length} // UTC Archive
+                    </div>
+                </div>
+                <div class="canvas-fidelity-wrapper">
+                    <pre><code>${conversation.canvasText}</code></pre>
+                </div>
             </div>
         `;
     }
 
     if (conversation.marginNotes && conversation.marginNotes.length > 0) {
         canvasDataHtml += `
-            <div class="section-title">Margin Notes & Provocations</div>
-            <div style="display: flex; flex-direction: column; gap: 20px;">
-                ${conversation.marginNotes.map((note: any) => `
-                    <div style="border-left: 3px solid var(--border-dark); padding-left: 15px;">
-                        <div style="font-family: var(--font-mono); font-size: 11px; text-transform: uppercase; font-weight: 600; margin-bottom: 5px; color: var(--text-muted);">${note.agent}</div>
-                        <div style="font-style: italic; color: var(--text-muted); margin-bottom: 5px;">"${note.quote}"</div>
-                        <div style="font-size: 14px;">${note.comment}</div>
-                    </div>
-                `).join('')}
+            <div class="margin-notes-section">
+                <div class="section-title">Canvas Segment Interventions</div>
+                <div class="margin-notes-grid">
+                    ${conversation.marginNotes.map((note: any) => {
+                        let noteAgentColor = '#888888';
+                        const foundAgent = ROLES.find(r => r.id === note.agentId) || LAB_ROLES.find(r => r.id === note.agentId) || (conversation.customAgents && conversation.customAgents.find((ca: any) => ca.id === note.agentId || ca.name === note.agent));
+                        if (foundAgent) {
+                           noteAgentColor = foundAgent.color || '#888888';
+                        }
+                        return `
+                        <div class="margin-note-card" style="border-left: 3px solid ${noteAgentColor}">
+                            <div class="note-agent" style="color: ${noteAgentColor}">${note.agent ? note.agent.toUpperCase() : 'AGENT'}</div>
+                            <div class="note-quote">"${note.quote}"</div>
+                            <div class="note-comment">${note.comment}</div>
+                        </div>
+                        `;
+                    }).join('')}
+                </div>
             </div>
         `;
+    }
+
+    // Build Session Resolution & Retrospectives
+    let retrospectiveHtml = '';
+    if (conversation.retrospective) {
+      const answersList = Array.isArray(conversation.retrospective.answers) ? conversation.retrospective.answers : [];
+      retrospectiveHtml += `
+        <div class="section-title">Session Resolution & Evaluation</div>
+        <div class="retro-card status-${conversation.retrospective.status.toLowerCase()}">
+          <div class="retro-status-badge">Verdict: ${conversation.retrospective.status}</div>
+          <div class="retro-answers">
+            ${answersList.map((a: any) => `
+              <div class="retro-qa">
+                <div class="retro-question">Q: ${a.question}</div>
+                <div class="retro-answer">A: ${a.answer}</div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `;
     }
 
     return `<!DOCTYPE html>
@@ -643,33 +896,37 @@ const generateArtifactHTML = (conversation: any) => {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>${title} - Nodus Report</title>
+    <title>${title} - Nodus Strategic Brief</title>
+    <!-- Premium Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&family=Lora:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
     <style>
-        /* MINIMALIST REPORT THEME */
+        /* LUXURIOUS TACTICAL STYLING */
         :root {
-            --bg: #ffffff;
-            --text-main: #111111;
-            --text-muted: #555555;
-            --border-light: #e5e5e5;
-            --border-dark: #000000;
-            --font-serif: ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
-            --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-            --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            --bg: #FAFAF9;
+            --text-main: #18181B;
+            --text-muted: #52525B;
+            --border-light: #E4E4E7;
+            --border-dark: #18181B;
+            --font-serif: "Lora", Georgia, Cambria, serif;
+            --font-mono: "JetBrains Mono", monospace;
+            --font-sans: "Inter", sans-serif;
         }
 
         body {
             background: var(--bg);
             color: var(--text-main);
-            font-family: var(--font-serif);
-            line-height: 1.7;
+            font-family: var(--font-sans);
+            line-height: 1.65;
             margin: 0;
-            padding: 40px 20px;
+            padding: 50px 30px;
             font-size: 15px;
             -webkit-font-smoothing: antialiased;
         }
 
         .container {
-            max-width: 800px; /* Optimal reading width for a report */
+            max-width: 960px;
             margin: 0 auto;
         }
 
@@ -680,11 +937,21 @@ const generateArtifactHTML = (conversation: any) => {
             margin-bottom: 50px;
         }
 
+        .header-system-tag {
+            font-family: var(--font-mono);
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.3em;
+            color: #D97706;
+            font-weight: 800;
+            margin-bottom: 10px;
+        }
+
         .title {
             font-family: var(--font-sans);
-            font-size: 28px;
-            font-weight: 700;
-            letter-spacing: -0.02em;
+            font-size: 32px;
+            font-weight: 800;
+            letter-spacing: -0.03em;
             margin: 0 0 16px 0;
             color: var(--text-main);
         }
@@ -692,156 +959,500 @@ const generateArtifactHTML = (conversation: any) => {
         .meta-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 10px;
+            gap: 15px;
             font-family: var(--font-mono);
             font-size: 11px;
             color: var(--text-muted);
             text-transform: uppercase;
-            letter-spacing: 0.05em;
+            letter-spacing: 0.08em;
         }
 
         .meta-item {
             border-top: 1px solid var(--border-light);
-            padding-top: 8px;
+            padding-top: 10px;
+        }
+
+        .session-prompt-hero {
+            background: #ffffff;
+            border: 1px solid var(--border-light);
+            border-left: 6px solid var(--border-dark);
+            border-radius: 8px;
+            padding: 24px 30px;
+            margin-bottom: 40px;
+            box-shadow: 0 4px 14px rgba(0,0,0,0.02);
+        }
+
+        .hero-label {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.15em;
+            color: #D97706; /* Accessible Amber */
+            font-weight: 800;
+            margin-bottom: 12px;
+        }
+
+        .hero-text {
+            font-family: var(--font-serif);
+            font-size: 19px !important;
+            color: var(--text-main) !important;
+            line-height: 1.6 !important;
+            font-weight: 500 !important;
+            margin: 0 !important;
+            border-bottom: none !important;
+            padding-bottom: 0 !important;
+        }
+
+        /* CANVAS AREA */
+        .canvas-outer-frame {
+            border: 1px solid var(--border-light);
+            border-radius: 6px;
+            overflow: hidden;
+            margin-bottom: 50px;
+            background: #18181C;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.06);
+        }
+        
+        .canvas-header {
+            background: #1E1E24;
+            color: #ffffff;
+            padding: 14px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-family: var(--font-mono);
+            font-size: 11px;
+            letter-spacing: 0.08em;
+            border-bottom: 1.5px solid #FFD100;
+        }
+
+        .pulse-indicator {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            background: #FFD100;
+            border-radius: 50%;
+            margin-right: 6px;
+            vertical-align: middle;
+            animation: pulse-op 2s infinite alternate;
+        }
+
+        @keyframes pulse-op {
+            from { opacity: 0.4; }
+            to { opacity: 1; }
+        }
+
+        .canvas-fidelity-wrapper {
+            padding: 24px;
+            background: #1E1E24;
+            color: #fafafa;
+            overflow-x: auto;
+            font-family: var(--font-mono);
+            font-size: 13px;
+            line-height: 1.6;
+        }
+
+        .canvas-fidelity-wrapper pre {
+            margin: 0;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+
+        /* MARGIN NOTES */
+        .margin-notes-section {
+            margin-bottom: 40px;
+        }
+
+        .margin-notes-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 20px;
+            margin-top: 16px;
+        }
+
+        .margin-note-card {
+            background: #ffffff;
+            border: 1px solid var(--border-light);
+            border-radius: 4px;
+            padding: 16px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.01);
+        }
+
+        .note-agent {
+            font-family: var(--font-mono);
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 0.05em;
+            margin-bottom: 6px;
+        }
+
+        .note-quote {
+            font-family: var(--font-serif);
+            font-size: 13px;
+            font-style: italic;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+            border-bottom: 1px dashed var(--border-light);
+            padding-bottom: 6px;
+        }
+
+        .note-comment {
+            font-size: 14px;
+            color: var(--text-main);
+            line-height: 1.5;
         }
 
         /* SECTIONS */
         .section-title {
             font-family: var(--font-sans);
-            font-size: 18px;
-            font-weight: 600;
+            font-size: 20px;
+            font-weight: 750;
             color: var(--text-main);
-            margin: 60px 0 30px;
+            margin: 60px 0 25px;
             padding-bottom: 12px;
-            border-bottom: 1px solid var(--border-light);
+            border-bottom: 2px solid var(--border-dark);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
         }
 
-        /* CANVAS AREA */
-        .canvas-fidelity-wrapper {
-            padding: 0;
-            border-left: 4px solid var(--border-light);
-            padding-left: 20px;
+        /* STRATEGIC TRANSMISSION GRIDS */
+        .strategic-turn-container {
+            margin-bottom: 60px;
         }
 
-        .canvas-fidelity-wrapper pre {
-            white-space: pre-wrap;
-            word-break: break-word;
-            font-family: var(--font-serif);
-            font-size: 16px;
-            margin: 0;
-        }
-
-        /* CONVERSATION TRANSCRIPT */
-        .conversation-history {
+        .turn-header {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            font-weight: 850;
+            color: #71717A;
+            letter-spacing: 0.15em;
+            text-transform: uppercase;
+            margin-top: 45px;
+            margin-bottom: 20px;
             display: flex;
-            flex-direction: column;
-            gap: 40px;
+            align-items: center;
+            gap: 12px;
         }
 
-        .message-block {
+        .turn-header::after {
+            content: "";
+            flex: 1;
+            height: 1px;
+            background: var(--border-light);
+        }
+
+        .user-query-card {
+            background: #F4F4F5;
+            border-left: 4px solid var(--border-dark);
+            padding: 24px;
+            border-radius: 0 6px 6px 0;
             margin-bottom: 30px;
         }
 
-        .message-block.user-msg {
-            font-weight: bold;
-        }
-
-        .message-block.synthesizer-msg {
-            margin-top: 50px;
-            border-top: 2px solid var(--border-dark);
-            padding-top: 30px;
-        }
-
-        .message-header {
+        .user-query-meta {
             font-family: var(--font-mono);
-            font-size: 12px;
-            font-weight: 600;
-            color: var(--text-muted);
-            margin-bottom: 12px;
-            letter-spacing: 0.05em;
+            font-size: 9px;
+            color: #71717A;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            margin-bottom: 8px;
+            font-weight: 700;
         }
 
-        .timestamp {
-            font-weight: normal;
-            color: #999;
-            margin-left: 8px;
-        }
-
-        .message-content {
+        .user-query {
             color: var(--text-main);
+            font-size: 16.5px;
+            font-weight: 500;
+            line-height: 1.6;
+            font-family: var(--font-serif);
         }
 
-        /* SYNTHESIS FORMATTING */
-        .message-content h4 {
+        /* AGENTS PANEL */
+        .agents-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .agent-brief-card {
+            background: #ffffff;
+            border: 1px solid var(--border-light);
+            border-top: 3px solid var(--agent-color);
+            border-radius: 6px;
+            padding: 20px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.02);
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            transition: all 0.2s ease;
+        }
+
+        .agent-brief-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(0,0,0,0.04);
+        }
+
+        .agent-card-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid #F4F4F5;
+            padding-bottom: 10px;
+            margin-bottom: 4px;
+        }
+
+        .agent-card-name {
             font-family: var(--font-sans);
-            font-size: 14px;
+            font-size: 13.5px;
+            font-weight: 800;
             text-transform: uppercase;
             letter-spacing: 0.05em;
-            margin: 2.5em 0 1em;
-            color: var(--text-main);
         }
-        
-        .message-content h4:first-child {
+
+        .agent-card-timestamp {
+            font-family: var(--font-mono);
+            font-size: 9px;
+            color: #a1a1aa;
+        }
+
+        .agent-provocation-text {
+            font-family: var(--font-serif);
+            font-size: 15px;
+            font-weight: 500;
+            line-height: 1.6;
+            color: #181c24;
+        }
+
+        .agent-rationale-box {
+            margin-top: 12px;
+            border-top: 1px dashed var(--border-light);
+            padding-top: 12px;
+        }
+
+        .agent-rationale-title {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            margin-bottom: 10px;
+        }
+
+        .agent-rationale-content {
+            font-size: 13.5px;
+            line-height: 1.6;
+            color: #52525B;
+        }
+
+        /* METABRIEF CARD styling */
+        .synth-meta-card {
+            background: #18181C;
+            border-left: 4px solid #FFD100;
+            border-radius: 0 8px 8px 0;
+            padding: 30px;
+            color: #fafaf9;
+            box-shadow: 0 6px 20px rgba(0,0,0,0.06);
+            margin-bottom: 40px;
+        }
+
+        .synth-meta-card h4 {
+            font-family: var(--font-sans);
+            font-size: 13.5px;
+            font-weight: 800;
+            color: #ffffff;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            margin-top: 25px;
+            margin-bottom: 12px;
+            border-bottom: 1px solid rgba(255,255,255,0.08);
+            padding-bottom: 6px;
+        }
+
+        .synth-meta-card h4:first-of-type {
             margin-top: 0;
         }
 
-        .message-content ul {
-            padding-left: 20px;
+        .synth-meta-text {
+            font-family: var(--font-serif);
+            font-size: 15.5px;
+            line-height: 1.7;
+            color: #e4e4e7;
         }
 
-        .message-content li {
-            margin-bottom: 8px;
-        }
-
-        /* TABLES */
-        .message-content table {
+        /* TABLES WITHIN meta briefs */
+        .synth-meta-card table {
             width: 100%;
             border-collapse: collapse;
             margin: 1.5em 0;
             font-family: var(--font-sans);
             font-size: 13px;
+            background: rgba(255,255,255,0.02);
+            border-radius: 4px;
+            overflow: hidden;
         }
 
-        .message-content th, .message-content td {
-            border-top: 1px solid var(--border-light);
-            border-bottom: 1px solid var(--border-light);
-            padding: 8px 12px;
+        .synth-meta-card th, .synth-meta-card td {
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+            padding: 10px 14px;
             text-align: left;
             vertical-align: top;
         }
 
-        .message-content th {
-            font-weight: 600;
-            color: var(--text-muted);
+        .synth-meta-card th {
+            color: #ffffff;
+            background: rgba(255,255,255,0.05);
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            font-weight: 700;
+        }
+
+        .synth-meta-card blockquote {
+            background: rgba(255,255,255,0.03);
+            border-left: 3px solid #ffffff;
+            margin: 1.5em 0;
+            padding: 12px 18px;
+            font-style: italic;
+            color: #d4d4d8;
+            border-radius: 0 4px 4px 0;
+        }
+
+        .synth-meta-card blockquote b {
+            font-family: var(--font-mono);
+            color: #ffffff;
+            font-size: 10px;
             text-transform: uppercase;
             letter-spacing: 0.05em;
-            font-size: 11px;
-            border-top: none;
-            border-bottom: 2px solid var(--border-light);
         }
 
-        .context-text {
-            color: var(--text-muted);
-            display: block;
-            margin-top: 6px;
+        /* RETROSPECTIVES */
+        .retro-card {
+            background: #ffffff;
+            border: 1px solid var(--border-light);
+            border-radius: 8px;
+            padding: 24px;
+            margin-bottom: 40px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.01);
         }
 
-        /* QUOTES */
-        .message-content blockquote {
-            border-left: 3px solid var(--border-light);
-            margin: 1.5em 0;
-            padding: 5px 0 5px 15px;
-            font-style: italic;
-            color: var(--text-muted);
+        .retro-card.status-satisfied {
+            border-left: 4px solid #10B981;
         }
 
-        .message-content blockquote b {
+        .retro-card.status-unsatisfied {
+            border-left: 4px solid #EF4444;
+        }
+
+        .retro-card.status-needs_more {
+            border-left: 4px solid #F59E0B;
+        }
+
+        .retro-status-badge {
             font-family: var(--font-mono);
             font-size: 11px;
-            font-style: normal;
             text-transform: uppercase;
-            letter-spacing: 0.05em;
+            font-weight: 800;
             color: var(--text-main);
+            letter-spacing: 0.1em;
+            margin-bottom: 20px;
+        }
+
+        .retro-qa {
+            margin-bottom: 16px;
+            border-bottom: 1px solid #F4F4F5;
+            padding-bottom: 12px;
+        }
+
+        .retro-qa:last-child {
+            margin-bottom: 0;
+            border-bottom: none;
+            padding-bottom: 0;
+        }
+
+        .retro-question {
+            font-weight: 700;
+            font-size: 14.5px;
+            color: var(--text-main);
+            margin-bottom: 4px;
+        }
+
+        .retro-answer {
+            color: var(--text-muted);
+            font-size: 14px;
+        }
+
+        /* PARSER REUSABLES */
+        .report-list {
+            padding-left: 20px;
+            margin: 1em 0;
+            font-size: 14.5px;
+        }
+
+        .report-list li {
+            margin-bottom: 6px;
+            line-height: 1.65;
+        }
+
+        .code-block {
+            background: #18181C;
+            color: #fafafa;
+            padding: 16px;
+            border-radius: 4px;
+            font-family: var(--font-mono);
+            font-size: 12px;
+            overflow-x: auto;
+            margin: 1.5em 0;
+        }
+
+        .inline-code {
+            font-family: var(--font-mono);
+            background: #E4E4E7;
+            color: #18181B;
+            padding: 2px 5px;
+            border-radius: 3px;
+            font-size: 12.5px;
+        }
+
+        /* Custom MD elements style override */
+        h1, h2, h3, h4, h5, h6 {
+            font-family: var(--font-sans);
+            color: var(--text-main);
+            margin-top: 28px;
+            margin-bottom: 12px;
+            line-height: 1.35;
+        }
+        
+        h1 { font-size: 21px; font-weight: 800; border-bottom: 1px dashed var(--border-light); padding-bottom: 6px; }
+        h2 { font-size: 18px; font-weight: 700; margin-top: 24px; }
+        h3 { font-size: 15px; font-weight: 600; margin-top: 20px; }
+
+        /* Within Dark Cards (Synthesizer Meta-brief Card) override */
+        .synth-meta-card h1, 
+        .synth-meta-card h2, 
+        .synth-meta-card h3, 
+        .synth-meta-card h4, 
+        .synth-meta-card h5 {
+            color: #ffffff;
+            border-bottom-color: rgba(255,255,255,0.1);
+        }
+        .synth-meta-card h1 { font-size: 18px; color: #ffffff; }
+        .synth-meta-card h2 { font-size: 16px; color: #E4E4E7; border-bottom: none; padding-bottom: 0; }
+        .synth-meta-card h3 { font-size: 14px; color: #D4D4D8; }
+        .synth-meta-card .md-paragraph {
+            font-size: 14.5px;
+            color: #e4e4e7;
+        }
+
+        .md-paragraph {
+            margin: 0 0 12px 0;
+            font-size: 15px;
+            line-height: 1.65;
+            color: var(--text-main);
+        }
+        
+        .md-spacer {
+            height: 12px;
         }
 
         /* FOOTER */
@@ -853,47 +1464,49 @@ const generateArtifactHTML = (conversation: any) => {
             color: var(--text-muted);
             border-top: 1px solid var(--border-light);
             padding-top: 40px;
-            letter-spacing: 0.1em;
+            letter-spacing: 0.15em;
         }
 
         /* PRINT OPTIMIZATION */
         @media print {
-            body { padding: 0; font-size: 12pt; }
+            body { background: #ffffff; padding: 0; font-size: 12pt; color: #000000; }
             .container { max-width: 100%; }
-            .canvas-fidelity-wrapper, .message-block.synthesizer-msg { 
-                background: transparent; 
-                border: 1px solid #000; 
-            }
-            .section-title { page-break-after: avoid; }
-            table, blockquote { page-break-inside: avoid; }
+            .canvas-fidelity-wrapper { background: #fafafa !important; color: #000000 !important; border: 1px solid #000 !important; }
+            .synth-meta-card { background: #fafafa !important; color: #000000 !important; border-left: 4px solid #000 !important; border: 1px solid #bbb; }
+            .synth-meta-card h4 { color: #000000 !important; border-bottom: 1px solid #000 !important; }
+            .agent-brief-card { page-break-inside: avoid; border: 1px solid #bbb !important; }
+            .report-list, blockquote, table { page-break-inside: avoid; }
         }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
+            <div class="header-system-tag">NODUS DECODE BRIEF ARCHIVE</div>
             <h1 class="title">${title}</h1>
             <div class="meta-grid">
                 <div class="meta-item">
-                    <strong>Report ID</strong><br>
+                    <strong>Brief Identity ID</strong><br>
                     ${Math.random().toString(36).substr(2, 9).toUpperCase()}
                 </div>
                 <div class="meta-item">
-                    <strong>Generation Date</strong><br>
+                    <strong>Extraction Timestamp</strong><br>
                     ${date}
                 </div>
                 <div class="meta-item">
-                    <strong>System</strong><br>
-                    Nodus Intelligence
+                    <strong>Integrity System</strong><br>
+                    NODUS MULTI-VISUAL METABRIEF
                 </div>
             </div>
         </div>
 
+        ${heroQuestionHtml}
         ${canvasDataHtml}
         ${conversationHtml}
+        ${retrospectiveHtml}
 
         <div class="footer">
-            CONFIDENTIAL ARCHIVE // GENERATED BY NODUS SYSTEMS
+            CONFIDENTIAL STRATEGIC ARCHIVES // DATA CAPTURED VIA INTEGRATED NODUS NETWORKS
         </div>
     </div>
 </body>
@@ -989,7 +1602,7 @@ const generateArtifactHTML = (conversation: any) => {
 
     try {
       const response = await withRetry(() => getAI().models.generateContent({
-        model: 'gemini-3-pro-preview',
+        model: 'gemini-3.1-pro-preview',
         contents: `The user wants to discuss: "${topic}". Suggest 2 highly specific, niche, or relevant thinkers/personas to analyze this topic. Provide their name, a system instruction for them to act as this persona (around 100 words), and a hex color code that represents their vibe.`,
         config: {
           responseMimeType: "application/json",
@@ -1017,7 +1630,7 @@ const generateArtifactHTML = (conversation: any) => {
           name: s.name,
           color: s.color,
           systemInstruction: s.systemInstruction,
-          model: 'gemini-3-pro-preview'
+          model: 'gemini-3-flash-preview'
         }));
         
         return {
@@ -1233,7 +1846,7 @@ Return ONLY a valid JSON object with the following structure:
     }
 
     // Use a high-context model for the master call
-    const modelName = 'gemini-3-pro-preview'; 
+    const modelName = 'gemini-3-flash-preview'; 
     
     let success = false;
     let attempts = 0;
@@ -1251,7 +1864,7 @@ Return ONLY a valid JSON object with the following structure:
         let inputTokens = 0;
         let outputTokens = 0;
 
-        for await (const chunk of responseStream) {
+        for await (const chunk of withStreamTimeout(responseStream)) {
           if (chunk.text) {
             fullText += chunk.text;
           }
@@ -1356,7 +1969,7 @@ Return ONLY a valid JSON object with the following structure:
       const prompt = `You are ${attacker.name}. Target statement by ${targetAgentId}: '${targetMsg.text}'. TASK: Attack this specific statement. Find the logical fallacy or risk. Dismantle it in one sharp paragraph (under 60 words).`;
       
       const responseStream = await withRetry(() => getAI().models.generateContentStream({
-        model: attacker.model || 'gemini-3-pro-preview',
+        model: attacker.model || 'gemini-3-flash-preview',
         contents: prompt,
         config: {
           systemInstruction: attacker.systemInstruction,
@@ -1368,7 +1981,7 @@ Return ONLY a valid JSON object with the following structure:
       let outputTokens = 0;
 
       let fullText = '';
-      for await (const chunk of responseStream) {
+      for await (const chunk of withStreamTimeout(responseStream)) {
         if (chunk.text) {
           fullText += chunk.text;
           updateConv(currentId, c => ({
@@ -1474,7 +2087,7 @@ Return ONLY a valid JSON object with the following structure:
             return std ? std.name : id;
           }).join(', ');
           const factCheckResponse = await withRetry(() => getAI().models.generateContent({
-            model: 'gemini-3-pro-preview',
+            model: 'gemini-3-flash-preview',
             contents: buildUserContentsWithAttachments(`You are a Grounded Ledger Auditor for a debate between AI personas.
             The following analytical operatives generated this data: ${activeAgentNames}.
             
@@ -1611,7 +2224,7 @@ Return ONLY a valid JSON object with the following structure:
         }));
 
         let fullText = '';
-        for await (const chunk of responseStream) {
+        for await (const chunk of withStreamTimeout(responseStream)) {
           if (chunk.text) {
             fullText += chunk.text;
             updateConv(currentId, c => ({
@@ -1730,7 +2343,7 @@ Return ONLY a valid JSON object with the following structure:
         }
 
         const responseStream = await withRetry(() => getAI().models.generateContentStream({
-          model: agent.model || 'gemini-3-pro-preview',
+          model: agent.model || 'gemini-3-flash-preview',
           contents: buildUserContentsWithAttachments(prompt, previousMessages, lastUserMsg.attachments),
           config,
         }));
@@ -1739,7 +2352,7 @@ Return ONLY a valid JSON object with the following structure:
         let outputTokens = 0;
 
         let fullText = '';
-        for await (const chunk of responseStream) {
+        for await (const chunk of withStreamTimeout(responseStream)) {
           if (chunk.text) {
             fullText += chunk.text;
             
@@ -1918,7 +2531,7 @@ Return ONLY a valid JSON object with the following structure:
       }));
 
       let fullText = '';
-      for await (const chunk of responseStream) {
+      for await (const chunk of withStreamTimeout(responseStream)) {
         if (chunk.text) {
           fullText += chunk.text;
           updateConv(currentId, c => ({
@@ -1964,7 +2577,7 @@ Return ONLY a valid JSON object with the following structure:
           STATUS: VERIFIED`;
 
         const factCheckResponse = await withRetry(() => getAI().models.generateContent({
-          model: 'gemini-3-pro-preview',
+          model: 'gemini-3-flash-preview',
           contents: buildUserContentsWithAttachments(factCheckPrompt, relevantMessages),
           config: {
             tools: [{ googleSearch: {} }],
@@ -2077,7 +2690,7 @@ The user has just adjusted your ${parameterName} parameter to ${newValue} out of
 Rewrite your response. You MUST maintain your exact core argument, analytical framework, and final conclusion. However, you must drastically shift your rhetorical style, tone, and vocabulary to reflect this new parameter value. Stay completely in character. Do not acknowledge this adjustment to the user; just deliver the modified response.`;
 
       const responseStream = await withRetry(() => getAI().models.generateContentStream({
-        model: agent.model || 'gemini-3-pro-preview',
+        model: agent.model || 'gemini-3-flash-preview',
         contents: prompt,
         config: {
           systemInstruction: agent.systemInstruction + "\n\nCRITICAL SYSTEM DIRECTIVE: You must output a valid JSON object with EXACTLY two keys: 'provocation' (a short quote under 250 chars) and 'full_analysis' (a deep multi-paragraph breakdown). Do not include markdown blocks.",
@@ -2101,7 +2714,7 @@ Rewrite your response. You MUST maintain your exact core argument, analytical fr
       }));
 
       let fullText = '';
-      for await (const chunk of responseStream) {
+      for await (const chunk of withStreamTimeout(responseStream)) {
         if (chunk.text) {
           fullText += chunk.text;
           
@@ -2166,7 +2779,7 @@ Rewrite your response. You MUST maintain your exact core argument, analytical fr
 
     try {
       const factCheckResponse = await withRetry(() => getAI().models.generateContent({
-        model: 'gemini-3-pro-preview',
+        model: 'gemini-3-flash-preview',
         contents: `You are a Grounded Ledger Auditor for a debate between AI personas.
         Your goal is to distinguish between **Objective Factual Errors** and **Persona Interpretations**.
 
@@ -2265,7 +2878,7 @@ Rewrite your response. You MUST maintain your exact core argument, analytical fr
       const prompt = `You previously said: "${parentMsg.text}"\n\nThe user wants you to elaborate specifically on the concept of: "${keyword}". Provide a focused, deeper analysis of this specific point, maintaining your persona. Keep it concise, around 100 words.`;
       
       const responseStream = await withRetry(() => getAI().models.generateContentStream({
-        model: activeAgent.model || 'gemini-3-pro-preview',
+        model: activeAgent.model || 'gemini-3-flash-preview',
         contents: prompt,
         config: {
           systemInstruction: activeAgent.systemInstruction + "\n\nCRITICAL SYSTEM DIRECTIVE: You must output a valid JSON object with EXACTLY two keys: 'provocation' (a short quote under 250 chars) and 'full_analysis' (a deep multi-paragraph breakdown). Do not include markdown blocks.",
@@ -2292,7 +2905,7 @@ Rewrite your response. You MUST maintain your exact core argument, analytical fr
       let outputTokens = 0;
 
       let fullText = '';
-      for await (const chunk of responseStream) {
+      for await (const chunk of withStreamTimeout(responseStream)) {
         if (chunk.text) {
           fullText += chunk.text;
           
@@ -2444,7 +3057,7 @@ Rewrite your response. You MUST maintain your exact core argument, analytical fr
           return std ? std.name : id;
         }).join(', ');
         const factCheckResponse = await withRetry(() => getAI().models.generateContent({
-          model: 'gemini-3-pro-preview',
+          model: 'gemini-3-flash-preview',
           contents: buildUserContentsWithAttachments(`You are a Grounded Ledger Auditor for a debate between AI personas.
           The following analytical operatives generated this data: ${activeAgentNames}.
 
@@ -2599,7 +3212,7 @@ Rewrite your response. You MUST maintain your exact core argument, analytical fr
       let outputTokens = 0;
       let groundingSources: any[] = [];
 
-      for await (const chunk of responseStream) {
+      for await (const chunk of withStreamTimeout(responseStream)) {
         if (chunk.text) {
           fullText += chunk.text;
           updateConv(currentId, c => ({
@@ -2674,7 +3287,7 @@ Rewrite your response. You MUST maintain your exact core argument, analytical fr
       /*
       try {
         const architectResponse = await getAI().models.generateContent({
-          model: 'gemini-3-pro-preview',
+          model: 'gemini-3-flash-preview',
           contents: [{ role: 'user', parts: [{ text: INFOGRAPHIC_ARCHITECT_PROMPT.replace('[SYNTHESIZER_TEXT]', fullText) }] }],
         });
 
@@ -2707,9 +3320,9 @@ Rewrite your response. You MUST maintain your exact core argument, analytical fr
     if (!activeId) return;
     setIsGeneratingImage(true);
     try {
-      // Use gemini-2.5-flash-image (nano banana) for free tier compatibility
+      // Use gemini-3.1-flash-image-preview for image generation
       const result = await getAI().models.generateContent({
-        model: 'gemini-2.5-flash-image',
+        model: 'gemini-3.1-flash-image-preview',
         contents: { parts: [{ text: prompt }] },
       });
 
@@ -2825,7 +3438,7 @@ Review these arguments strictly through your analytical lens. Identify ONE funda
 Write a concise rebuttal directly addressing that specific agent by name. Defend your worldview against theirs. Do not summarize the arguments; attack the intellectual friction point directly and sharply. Keep it under 200 words.`;
 
         const responseStream = await withRetry(() => getAI().models.generateContentStream({
-          model: agent.model || 'gemini-3-pro-preview',
+          model: agent.model || 'gemini-3-flash-preview',
           contents: prompt,
           config: {
             systemInstruction: agent.systemInstruction + "\n\nCRITICAL SYSTEM DIRECTIVE: You must output a valid JSON object with EXACTLY two keys: 'provocation' (a short quote under 250 chars) and 'full_analysis' (a deep multi-paragraph breakdown). Do not include markdown blocks.",
@@ -2849,7 +3462,7 @@ Write a concise rebuttal directly addressing that specific agent by name. Defend
         }));
 
         let fullText = '';
-        for await (const chunk of responseStream) {
+        for await (const chunk of withStreamTimeout(responseStream)) {
           if (chunk.text) {
             fullText += chunk.text;
             
@@ -3008,7 +3621,7 @@ Use exactly these keys: {"full_analysis": "...", "provocation": "..."}.
 
     try {
       const response = await getAI().models.generateContent({
-        model: 'gemini-3-pro-preview',
+        model: 'gemini-3.1-pro-preview',
         contents: `The user needs a panel of 3 highly distinct, specialized thinkers (real or archetypal) to debate this topic: '${goal}'. Return a JSON object representing a Task Force.`,
         config: {
           responseMimeType: "application/json",
@@ -3197,7 +3810,7 @@ Use exactly these keys: {"full_analysis": "...", "provocation": "..."}.
 
     try {
       const ai = getAI();
-      const model = activeSettings?.synthesizer?.model || settings?.synthesizer?.model || 'gemini-3-flash-preview';
+      const model = activeSettings?.synthesizer?.model || settings?.synthesizer?.model || 'gemini-3.1-pro-preview';
       
       const systemInstruction = `You are a ruthless Task Force of expert advisors reviewing a document. 
 Review the following document. Do not rewrite it entirely. Return a JSON array of 'provocations'. Each object must contain 'quote' (the exact substring from the document you are critiquing), 'agent' (your persona name), 'comment' (your ruthless critique), and 'suggestion' (a concise, direct, improved rewrite of the quote that resolves the critique). Provide 3 to 5 critiques.`;

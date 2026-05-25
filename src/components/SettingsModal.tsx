@@ -94,7 +94,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
                   <div>
                     <label className="block text-xs uppercase tracking-wider text-zinc-500 mb-2">Model</label>
                     <select 
-                      value={currentSettings.model || 'gemini-3-pro-preview'}
+                      value={currentSettings.model || 'gemini-3-flash-preview'}
                       onChange={(e) => handleChange(role.id, 'model', e.target.value)}
                       className="w-full bg-black border border-zinc-800 text-[#F4F4F0] p-3 font-sans text-sm focus:outline-none focus:border-zinc-500"
                     >

@@ -15,6 +15,38 @@ export async function withRetry<T>(fn: () => Promise<T>, retries = 3, delay = 10
   }
 }
 
+export async function* withStreamTimeout<T>(
+  asyncIterable: AsyncIterable<T>,
+  timeoutMs: number = 60000
+): AsyncIterable<T> {
+  const iterator = asyncIterable[Symbol.asyncIterator]();
+  
+  while (true) {
+    let timeoutId: NodeJS.Timeout | undefined;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutId = setTimeout(() => {
+        reject(new Error(`Stream chunk timeout after ${timeoutMs}ms`));
+      }, timeoutMs);
+    });
+
+    try {
+      const result = await Promise.race([
+        iterator.next(),
+        timeoutPromise
+      ]);
+
+      if (timeoutId) clearTimeout(timeoutId);
+
+      if (result.done) break;
+      yield result.value;
+    } catch (e) {
+      if (timeoutId) clearTimeout(timeoutId);
+      throw e;
+    }
+  }
+}
+
+
 export async function calculateQueryCost(model: string, payload: any): Promise<number> {
   try {
     const ai = getAI();
@@ -43,9 +75,9 @@ export async function fetchLiveContext(userPrompt: string): Promise<string> {
   try {
     const ai = getAI();
     
-    // Using gemini-3-pro-preview which supports googleSearch grounding.
+    // Using gemini-3-flash-preview which supports googleSearch grounding.
     const response = await ai.models.generateContent({
-      model: "gemini-3-pro-preview",
+      model: "gemini-3-flash-preview",
       contents: userPrompt,
       config: {
         tools: [{ googleSearch: {} }],

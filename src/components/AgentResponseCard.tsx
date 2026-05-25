@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Markdown from 'react-markdown';
 import { motion, AnimatePresence } from 'framer-motion';
 import { TypewriterText } from './ChatMessage';
@@ -14,7 +14,34 @@ interface AgentResponseCardProps {
 }
 
 export const AgentResponseCard: React.FC<AgentResponseCardProps> = ({ provocation, fullAnalysis, agentColor, isTyping, isExtractMode, onExtractText }) => {
-  const [isExpanded, setIsExpanded] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(() => {
+    if (typeof window !== 'undefined' && window.innerWidth >= 768) {
+      return !!(window as any).__nodus_rationales_expanded;
+    }
+    return false;
+  });
+
+  useEffect(() => {
+    const handleToggle = (e: Event) => {
+      if (typeof window !== 'undefined' && window.innerWidth >= 768) {
+        const customEvent = e as CustomEvent<{ expanded: boolean }>;
+        setIsExpanded(customEvent.detail.expanded);
+      }
+    };
+    window.addEventListener('nodus-toggle-rationales', handleToggle);
+    return () => {
+      window.removeEventListener('nodus-toggle-rationales', handleToggle);
+    };
+  }, []);
+
+  const handleToggleClick = () => {
+    const nextState = !isExpanded;
+    setIsExpanded(nextState);
+    if (typeof window !== 'undefined' && window.innerWidth >= 768) {
+      (window as any).__nodus_rationales_expanded = nextState;
+      window.dispatchEvent(new CustomEvent('nodus-toggle-rationales', { detail: { expanded: nextState } }));
+    }
+  };
 
   return (
     <div className="flex flex-col gap-4">
@@ -25,7 +52,7 @@ export const AgentResponseCard: React.FC<AgentResponseCardProps> = ({ provocatio
 
       {/* Toggle Button - Distinctive Rationale Trigger */}
       <button
-        onClick={() => setIsExpanded(!isExpanded)}
+        onClick={handleToggleClick}
         className="text-xs font-mono font-bold uppercase tracking-widest text-zinc-500 hover:text-[#F4F4F0] mt-4 transition-colors w-fit flex items-center gap-2"
       >
         <span>{isExpanded ? '[ - HIDE RATIONALE ]' : '[ + EXPAND RATIONALE ]'}</span>
